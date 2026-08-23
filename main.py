@@ -220,13 +220,18 @@ async def grant_pioneer_role_if_eligible(member, channel):
     print(f'⚠️ แจกยศผู้บุกเบิกให้ {member} ไม่สำเร็จ: {e}')
 
 
-# --- แบนเนอร์ต้อนรับ (GIF/รูป) — ใส่ URL ที่ได้จากการอัปโหลดรูปลงห้อง Discord แล้ว Copy Link มาแปะตรงนี้ ---
+# --- แบนเนอร์ต้อนรับ (GIF) — สุ่มแสดง 1 อันจากลิสต์นี้ทุกครั้งที่มีคนเข้าเซิร์ฟใหม่ ---
 WELCOME_BANNER_URLS = [
     "https://cdn.discordapp.com/attachments/1537605943485923378/1540957099310190612/IMG_6356.gif",
     "https://cdn.discordapp.com/attachments/1537605943485923378/1540957099616370688/IMG_6355.gif",
     "https://cdn.discordapp.com/attachments/1537605943485923378/1540957099960311878/IMG_6354.gif",
     "https://cdn.discordapp.com/attachments/1537605943485923378/1540957100375678996/IMG_6352.gif",
 ]
+
+# --- รูปนิ่งที่แปะคู่กับ GIF ทุกครั้ง (ไฟล์แนบในโปรเจกต์ ไม่มีการสุ่ม แสดงรูปเดิมเสมอ) ---
+# วางไฟล์รูปที่ต้องการไว้ที่ assets/welcome_static.jpg (โฟลเดอร์เดียวกับ main.py)
+WELCOME_STATIC_IMAGE_PATH = os.path.join(os.path.dirname(__file__), 'assets', 'welcome_static.jpg')
+WELCOME_STATIC_IMAGE_FILENAME = 'welcome_static.jpg'
 
 
 def who_text(member):
@@ -303,11 +308,34 @@ async def on_member_join(member):
       color=discord.Color.dark_grey(),
   )
   embed.set_thumbnail(url=member.display_avatar.url)
-  if WELCOME_BANNER_URLS:
-    embed.set_image(url=random.choice(WELCOME_BANNER_URLS))
   embed.set_footer(text=f'🐳 สมาชิกคนที่ {member.guild.member_count} ของเซิร์ฟนี้ ✨')
 
-  await channel.send(embed=embed)
+  # embed ที่ 2: โชว์ GIF แบนเนอร์แบบสุ่ม
+  gif_embed = None
+  if WELCOME_BANNER_URLS:
+    gif_embed = discord.Embed(color=discord.Color.dark_grey())
+    gif_embed.set_image(url=random.choice(WELCOME_BANNER_URLS))
+
+  # รูปนิ่งที่แปะคู่กับ GIF เสมอ ไม่มีการสุ่ม (ไฟล์แนบในโปรเจกต์)
+  static_file = None
+  static_embed = None
+  if os.path.isfile(WELCOME_STATIC_IMAGE_PATH):
+    static_file = discord.File(WELCOME_STATIC_IMAGE_PATH, filename=WELCOME_STATIC_IMAGE_FILENAME)
+    static_embed = discord.Embed(color=discord.Color.dark_grey())
+    static_embed.set_image(url=f'attachment://{WELCOME_STATIC_IMAGE_FILENAME}')
+  else:
+    print(f'⚠️ ยังไม่พบไฟล์รูปนิ่งที่ {WELCOME_STATIC_IMAGE_PATH} ข้ามไปก่อน')
+
+  embeds = [e for e in [embed, static_embed, gif_embed] if e is not None]
+  try:
+    if static_file is not None:
+      await channel.send(embeds=embeds, file=static_file)
+    else:
+      await channel.send(embeds=embeds)
+  except discord.Forbidden:
+    print(f'⚠️ บอทไม่มีสิทธิ์ส่งข้อความ/Embed ในห้อง {channel} ครับ')
+  except discord.HTTPException as e:
+    print(f'⚠️ ส่งข้อความต้อนรับไม่สำเร็จ: {e}')
 
 
 @bot.event
