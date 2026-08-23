@@ -10,7 +10,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True  # ต้องเปิดเพื่อดักจับสมาชิกเข้า-ออก
 
-bot = commands.Bot(command_prefix='!', intents=intents)
+bot = commands.Bot(command_prefix=commands.when_mentioned_or('!'), intents=intents)
 
 # --- ล็อกให้ส่งข้อความเฉพาะห้องนี้เท่านั้น ---
 WELCOME_CHANNEL_NAME = 'ต้อนรับ🎉'
@@ -351,7 +351,7 @@ async def เหลือผู้บุกเบิก(ctx):
     await ctx.send(f'🏆 ยศผู้บุกเบิกเหลืออีก **{remaining}/{PIONEER_LIMIT}** ที่ รีบชวนเพื่อนเข้ามาก่อนหมด!')
 
 
-@bot.command(name='กฏ', aliases=['กฎ', 'rules'])
+@bot.command(name='กฎ', aliases=['กฏ', 'rules'])
 async def show_rules(ctx):
   """แสดงกฎทั้งหมดของเซิร์ฟเวอร์"""
   embed1 = discord.Embed(
@@ -360,10 +360,52 @@ async def show_rules(ctx):
       color=discord.Color.dark_grey(),
   )
   embed2 = discord.Embed(
+      title='🏅 ยศและลำดับขั้น',
       description=SERVER_RANK_TEXT,
       color=discord.Color.dark_grey(),
   )
-  await ctx.send(embeds=[embed1, embed2])
+  try:
+    await ctx.send(embeds=[embed1, embed2])
+  except discord.Forbidden:
+    await ctx.send('⚠️ บอทไม่มีสิทธิ์ส่งข้อความ/Embed ในห้องนี้ครับ')
+  except discord.HTTPException as e:
+    print(f'⚠️ ส่งกฎไม่สำเร็จ: {e}')
+    try:
+      await ctx.send('⚠️ ส่งกฎไม่สำเร็จ ลองใช้คำสั่งอีกครั้ง')
+    except discord.HTTPException:
+      pass
+
+
+@bot.event
+async def on_message(message):
+  # ไม่ตอบข้อความของบอทตัวเอง
+  if message.author.bot:
+    return
+
+  # อนุญาตให้พิมพ์ "กฎ" หรือ "กฏ" ตรง ๆ ในห้องกฎได้ โดยไม่ต้องใส่ !
+  if (message.channel.name in {'กฏ📜', 'กฎ📜'}
+      and message.content.strip() in {'กฎ', 'กฏ', 'rules', '!กฎ', '!กฏ', '!rules'}):
+    ctx = await bot.get_context(message)
+    await show_rules.callback(ctx)
+    return
+
+  # ต้องมีบรรทัดนี้ ไม่งั้นคำสั่ง @bot.command ทั้งหมดจะไม่ทำงาน
+  await bot.process_commands(message)
+
+
+@bot.event
+async def on_command_error(ctx, error):
+  # แจ้งสาเหตุที่คำสั่งไม่ทำงาน แทนการเงียบ
+  if isinstance(error, commands.CommandNotFound):
+    return
+  if isinstance(error, commands.MissingPermissions):
+    await ctx.send('⚠️ คุณไม่มีสิทธิ์ใช้คำสั่งนี้ครับ')
+    return
+  print(f'⚠️ Command error [{getattr(ctx.command, "name", "unknown")}]: {error!r}')
+  try:
+    await ctx.send(f'⚠️ คำสั่งทำงานไม่สำเร็จ: `{type(error).__name__}`')
+  except discord.HTTPException:
+    pass
 
 
 # เปิดเว็บเซิร์ฟเวอร์เล็กๆ ไว้ให้ Render เห็นว่า service เปิด port อยู่
