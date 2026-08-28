@@ -4,7 +4,8 @@ import datetime
 import discord
 from discord.ext import commands
 from keep_alive import keep_alive
-from welcome_card import build_welcome_card
+import log_system
+import db
 
 # ตั้งค่า Intents
 intents = discord.Intents.default()
@@ -107,6 +108,10 @@ SERVER_RANK_TEXT = (
 async def on_ready():
   print(f'🗿 บอท {bot.user.name} พร้อมป่วนสมาชิกใหม่แล้ว!')
   await bot.change_presence(activity=discord.Game(name='รอต้อนรับเหยื่อใหม่ 🗿'))
+
+  # เช็ค/สร้างห้อง log หลังบ้านให้ทุกเซิร์ฟที่บอทอยู่
+  for guild in bot.guilds:
+    await log_system.ensure_log_channel(guild)
 
 
 def get_welcome_channel(guild):
@@ -243,6 +248,9 @@ def who_text(member):
 
 @bot.event
 async def on_member_join(member):
+  # --- บันทึก log หลังบ้าน ---
+  await log_system.log_member_join(member)
+
   # --- แจกยศให้สมาชิกใหม่อัตโนมัติ ---
   role = discord.utils.get(member.guild.roles, name=NEW_MEMBER_ROLE_NAME)
   if role is not None:
@@ -317,26 +325,20 @@ async def on_member_join(member):
     gif_embed = discord.Embed(color=discord.Color.dark_grey())
     gif_embed.set_image(url=random.choice(WELCOME_BANNER_URLS))
 
-  # การ์ดต้อนรับที่ generate สดๆ ต่อคน (avatar + ชื่อ + ลำดับสมาชิก) แทนรูปนิ่งเดิม
-  card_file = None
-  card_embed = None
-  try:
-    card_buffer = await build_welcome_card(member)
-    card_file = discord.File(card_buffer, filename='welcome-card.png')
-    card_embed = discord.Embed(color=discord.Color.dark_grey())
-    card_embed.set_image(url='attachment://welcome-card.png')
-  except Exception as e:
-    print(f'⚠️ สร้างการ์ดต้อนรับไม่สำเร็จ: {e}')
-    # fallback: ถ้าสร้างการ์ดพัง ลองใช้รูปนิ่งเดิมแทน กันไม่ให้ข้อความต้อนรับหายไปเฉยๆ
-    if os.path.isfile(WELCOME_STATIC_IMAGE_PATH):
-      card_file = discord.File(WELCOME_STATIC_IMAGE_PATH, filename=WELCOME_STATIC_IMAGE_FILENAME)
-      card_embed = discord.Embed(color=discord.Color.dark_grey())
-      card_embed.set_image(url=f'attachment://{WELCOME_STATIC_IMAGE_FILENAME}')
+  # รูปนิ่งที่แปะคู่กับ GIF เสมอ ไม่มีการสุ่ม (ไฟล์แนบในโปรเจกต์)
+  static_file = None
+  static_embed = None
+  if os.path.isfile(WELCOME_STATIC_IMAGE_PATH):
+    static_file = discord.File(WELCOME_STATIC_IMAGE_PATH, filename=WELCOME_STATIC_IMAGE_FILENAME)
+    static_embed = discord.Embed(color=discord.Color.dark_grey())
+    static_embed.set_image(url=f'attachment://{WELCOME_STATIC_IMAGE_FILENAME}')
+  else:
+    print(f'⚠️ ยังไม่พบไฟล์รูปนิ่งที่ {WELCOME_STATIC_IMAGE_PATH} ข้ามไปก่อน')
 
-  embeds = [e for e in [embed, card_embed, gif_embed] if e is not None]
+  embeds = [e for e in [embed, static_embed, gif_embed] if e is not None]
   try:
-    if card_file is not None:
-      await channel.send(embeds=embeds, file=card_file)
+    if static_file is not None:
+      await channel.send(embeds=embeds, file=static_file)
     else:
       await channel.send(embeds=embeds)
   except discord.Forbidden:
@@ -347,6 +349,9 @@ async def on_member_join(member):
 
 @bot.event
 async def on_member_remove(member):
+  # --- บันทึก log หลังบ้าน (ทำก่อน เผื่อห้องต้อนรับหาไม่เจอแล้ว return ตัดตอน) ---
+  await log_system.log_member_remove(member)
+
   channel = get_welcome_channel(member.guild)
   if channel is None:
     return
@@ -372,6 +377,95 @@ async def on_member_remove(member):
     print(f'⚠️ บอทไม่มีสิทธิ์ส่งข้อความ/Embed ในห้อง {channel} ครับ')
   except discord.HTTPException as e:
     print(f'⚠️ ส่งข้อความอำลาไม่สำเร็จ: {e}')
+
+
+# ---------- Event ใหม่: ระบบ log หลังบ้าน (ไม่ชนกับ event เดิม เพราะเดิมไม่มี) ----------
+
+@bot.event
+async def on_member_ban(guild, user):
+  await log_system.log_member_ban(guild, user)
+
+
+@bot.event
+async def on_member_unban(guild, user):
+  await log_system.log_member_unban(guild, user)
+
+
+@bot.event
+async def on_member_update(before, after):
+  await log_system.log_member_update(before, after)
+
+
+@bot.event
+async def on_message_delete(message):
+  await log_system.log_message_delete(message)
+
+
+@bot.event
+async def on_message_edit(before, after):
+  await log_system.log_message_edit(before, after)
+
+
+@bot.event
+async def on_voice_state_update(member, before, after):
+  await log_system.log_voice_state_update(member, before, after)
+
+
+@bot.command(name='สถิติ')
+async def show_stats(ctx):
+  """แสดงสถิติภาพรวมของเซิร์ฟ"""
+  guild = ctx.guild
+  humans = sum(1 for m in guild.members if not m.bot)
+  bots = sum(1 for m in guild.members if m.bot)
+
+  embed = discord.Embed(
+      title=f'📊 สถิติเซิร์ฟ {guild.name}',
+      color=discord.Color.dark_grey(),
+      timestamp=discord.utils.utcnow(),
+  )
+  if guild.icon:
+    embed.set_thumbnail(url=guild.icon.url)
+  embed.add_field(name='สมาชิกทั้งหมด', value=str(guild.member_count), inline=True)
+  embed.add_field(name='คนจริง', value=str(humans), inline=True)
+  embed.add_field(name='บอท', value=str(bots), inline=True)
+  embed.add_field(name='จำนวนห้องข้อความ', value=str(len(guild.text_channels)), inline=True)
+  embed.add_field(name='จำนวนห้องเสียง', value=str(len(guild.voice_channels)), inline=True)
+  embed.add_field(name='จำนวนยศ', value=str(len(guild.roles)), inline=True)
+  embed.add_field(name='เซิร์ฟสร้างเมื่อ', value=discord.utils.format_dt(guild.created_at, style='R'), inline=True)
+
+  await ctx.send(embed=embed)
+
+
+@bot.command(name='สถิติย้อนหลัง')
+async def show_historical_stats(ctx, days: int = 7):
+  """แสดงสถิติเข้า/ออก/เตะ/แบน ย้อนหลัง N วัน (ค่าเริ่มต้น 7 วัน) — ต้องตั้งค่า MONGODB_URI ก่อนถึงจะมีข้อมูล"""
+  if not db.is_connected():
+    await ctx.send('⚠️ ยังไม่ได้เชื่อมต่อฐานข้อมูล (MONGODB_URI) เลยไม่มีสถิติย้อนหลังให้ดูครับ')
+    return
+
+  days = max(1, min(days, 365))
+  since = discord.utils.utcnow() - datetime.timedelta(days=days)
+  guild_id = ctx.guild.id
+
+  joins = await db.count_since(guild_id, 'join', since)
+  leaves = await db.count_since(guild_id, 'leave', since)
+  kicks = await db.count_since(guild_id, 'kick', since)
+  bans = await db.count_since(guild_id, 'ban', since)
+  net = joins - leaves - kicks - bans
+
+  embed = discord.Embed(
+      title=f'📈 สถิติย้อนหลัง {days} วัน',
+      color=discord.Color.dark_grey(),
+      timestamp=discord.utils.utcnow(),
+  )
+  embed.add_field(name='เข้าใหม่', value=f'+{joins}', inline=True)
+  embed.add_field(name='ออกเอง', value=f'-{leaves}', inline=True)
+  embed.add_field(name='ถูกเตะ', value=f'-{kicks}', inline=True)
+  embed.add_field(name='ถูกแบน', value=f'-{bans}', inline=True)
+  embed.add_field(name='สุทธิ', value=f'{"+" if net >= 0 else ""}{net}', inline=True)
+  embed.set_footer(text='ใช้ !สถิติย้อนหลัง <จำนวนวัน> เพื่อดูช่วงอื่น เช่น !สถิติย้อนหลัง 30')
+
+  await ctx.send(embed=embed)
 
 
 # --- คำสั่งทดสอบข้อความต้อนรับโดยไม่ต้องมีคนเข้าจริง ---
