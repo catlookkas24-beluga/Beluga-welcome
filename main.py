@@ -4,13 +4,14 @@ import datetime
 import discord
 from discord.ext import commands
 from keep_alive import keep_alive
+from welcome_card import build_welcome_card
 
 # ตั้งค่า Intents
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True  # ต้องเปิดเพื่อดักจับสมาชิกเข้า-ออก
 
-bot = commands.Bot(command_prefix='!', intents=intents)
+bot = commands.Bot(command_prefix=commands.when_mentioned_or('!'), intents=intents)
 
 # --- ล็อกให้ส่งข้อความเฉพาะห้องนี้เท่านั้น ---
 WELCOME_CHANNEL_NAME = 'ต้อนรับ🎉'
@@ -310,27 +311,38 @@ async def on_member_join(member):
   embed.set_thumbnail(url=member.display_avatar.url)
   embed.set_footer(text=f'🐳 สมาชิกคนที่ {member.guild.member_count} ของเซิร์ฟนี้ ✨')
 
-  # embed ที่ 2: โชว์ GIF แบนเนอร์แบบสุ่ม (คนละอันกับ Welcome Card)
+  # embed ที่ 2: โชว์ GIF แบนเนอร์แบบสุ่ม
   gif_embed = None
   if WELCOME_BANNER_URLS:
     gif_embed = discord.Embed(color=discord.Color.dark_grey())
     gif_embed.set_image(url=random.choice(WELCOME_BANNER_URLS))
 
-  # รูปนิ่งที่แปะคู่กับ GIF เสมอ ไม่มีการสุ่ม (ไฟล์แนบในโปรเจกต์)
-  static_file = None
-  static_embed = None
-  if os.path.isfile(WELCOME_STATIC_IMAGE_PATH):
-    static_file = discord.File(WELCOME_STATIC_IMAGE_PATH, filename=WELCOME_STATIC_IMAGE_FILENAME)
-    static_embed = discord.Embed(color=discord.Color.dark_grey())
-    static_embed.set_image(url=f'attachment://{WELCOME_STATIC_IMAGE_FILENAME}')
-  else:
-    print(f'⚠️ ยังไม่พบไฟล์รูปนิ่งที่ {WELCOME_STATIC_IMAGE_PATH} ข้ามไปก่อน')
+  # การ์ดต้อนรับที่ generate สดๆ ต่อคน (avatar + ชื่อ + ลำดับสมาชิก) แทนรูปนิ่งเดิม
+  card_file = None
+  card_embed = None
+  try:
+    card_buffer = await build_welcome_card(member)
+    card_file = discord.File(card_buffer, filename='welcome-card.png')
+    card_embed = discord.Embed(color=discord.Color.dark_grey())
+    card_embed.set_image(url='attachment://welcome-card.png')
+  except Exception as e:
+    print(f'⚠️ สร้างการ์ดต้อนรับไม่สำเร็จ: {e}')
+    # fallback: ถ้าสร้างการ์ดพัง ลองใช้รูปนิ่งเดิมแทน กันไม่ให้ข้อความต้อนรับหายไปเฉยๆ
+    if os.path.isfile(WELCOME_STATIC_IMAGE_PATH):
+      card_file = discord.File(WELCOME_STATIC_IMAGE_PATH, filename=WELCOME_STATIC_IMAGE_FILENAME)
+      card_embed = discord.Embed(color=discord.Color.dark_grey())
+      card_embed.set_image(url=f'attachment://{WELCOME_STATIC_IMAGE_FILENAME}')
 
-  embeds = [e for e in [embed, static_embed, gif_embed] if e is not None]
-  if static_file is not None:
-    await channel.send(embeds=embeds, file=static_file)
-  else:
-    await channel.send(embeds=embeds)
+  embeds = [e for e in [embed, card_embed, gif_embed] if e is not None]
+  try:
+    if card_file is not None:
+      await channel.send(embeds=embeds, file=card_file)
+    else:
+      await channel.send(embeds=embeds)
+  except discord.Forbidden:
+    print(f'⚠️ บอทไม่มีสิทธิ์ส่งข้อความ/Embed ในห้อง {channel} ครับ')
+  except discord.HTTPException as e:
+    print(f'⚠️ ส่งข้อความต้อนรับไม่สำเร็จ: {e}')
 
 
 @bot.event
@@ -347,7 +359,19 @@ async def on_member_remove(member):
       f'🗿 {member.name} หายไปแล้ว คงทนคนกวนในนี้ไม่ได้สินะ 😂',
   ]
 
-  await channel.send(random.choice(goodbye_messages))
+  goodbye_embed = discord.Embed(
+      description=random.choice(goodbye_messages),
+      color=discord.Color.dark_grey(),
+  )
+  goodbye_embed.set_thumbnail(url=member.display_avatar.url)
+  goodbye_embed.set_footer(text=f'🐳 เหลือสมาชิก {member.guild.member_count} คนในเซิร์ฟนี้')
+
+  try:
+    await channel.send(embed=goodbye_embed)
+  except discord.Forbidden:
+    print(f'⚠️ บอทไม่มีสิทธิ์ส่งข้อความ/Embed ในห้อง {channel} ครับ')
+  except discord.HTTPException as e:
+    print(f'⚠️ ส่งข้อความอำลาไม่สำเร็จ: {e}')
 
 
 # --- คำสั่งทดสอบข้อความต้อนรับโดยไม่ต้องมีคนเข้าจริง ---
@@ -374,7 +398,7 @@ async def เหลือผู้บุกเบิก(ctx):
     await ctx.send(f'🏆 ยศผู้บุกเบิกเหลืออีก **{remaining}/{PIONEER_LIMIT}** ที่ รีบชวนเพื่อนเข้ามาก่อนหมด!')
 
 
-@bot.command(name='กฏ', aliases=['กฎ', 'rules'])
+@bot.command(name='กฎ', aliases=['กฏ', 'rules'])
 async def show_rules(ctx):
   """แสดงกฎทั้งหมดของเซิร์ฟเวอร์"""
   embed1 = discord.Embed(
@@ -383,10 +407,52 @@ async def show_rules(ctx):
       color=discord.Color.dark_grey(),
   )
   embed2 = discord.Embed(
+      title='🏅 ยศและลำดับขั้น',
       description=SERVER_RANK_TEXT,
       color=discord.Color.dark_grey(),
   )
-  await ctx.send(embeds=[embed1, embed2])
+  try:
+    await ctx.send(embeds=[embed1, embed2])
+  except discord.Forbidden:
+    await ctx.send('⚠️ บอทไม่มีสิทธิ์ส่งข้อความ/Embed ในห้องนี้ครับ')
+  except discord.HTTPException as e:
+    print(f'⚠️ ส่งกฎไม่สำเร็จ: {e}')
+    try:
+      await ctx.send('⚠️ ส่งกฎไม่สำเร็จ ลองใช้คำสั่งอีกครั้ง')
+    except discord.HTTPException:
+      pass
+
+
+@bot.event
+async def on_message(message):
+  # ไม่ตอบข้อความของบอทตัวเอง
+  if message.author.bot:
+    return
+
+  # อนุญาตให้พิมพ์ "กฎ" หรือ "กฏ" ตรง ๆ ในห้องกฎได้ โดยไม่ต้องใส่ !
+  if (message.channel.name in {'กฏ📜', 'กฎ📜'}
+      and message.content.strip() in {'กฎ', 'กฏ', 'rules', '!กฎ', '!กฏ', '!rules'}):
+    ctx = await bot.get_context(message)
+    await show_rules.callback(ctx)
+    return
+
+  # ต้องมีบรรทัดนี้ ไม่งั้นคำสั่ง @bot.command ทั้งหมดจะไม่ทำงาน
+  await bot.process_commands(message)
+
+
+@bot.event
+async def on_command_error(ctx, error):
+  # แจ้งสาเหตุที่คำสั่งไม่ทำงาน แทนการเงียบ
+  if isinstance(error, commands.CommandNotFound):
+    return
+  if isinstance(error, commands.MissingPermissions):
+    await ctx.send('⚠️ คุณไม่มีสิทธิ์ใช้คำสั่งนี้ครับ')
+    return
+  print(f'⚠️ Command error [{getattr(ctx.command, "name", "unknown")}]: {error!r}')
+  try:
+    await ctx.send(f'⚠️ คำสั่งทำงานไม่สำเร็จ: `{type(error).__name__}`')
+  except discord.HTTPException:
+    pass
 
 
 # เปิดเว็บเซิร์ฟเวอร์เล็กๆ ไว้ให้ Render เห็นว่า service เปิด port อยู่
