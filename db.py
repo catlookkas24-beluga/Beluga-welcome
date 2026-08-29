@@ -5,7 +5,8 @@ db.py
 """
 
 import os
-from motor.motor_asyncio import AsyncIOMotorClient
+from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorGridFSBucket
+from bson import ObjectId
 
 MONGO_URI = os.getenv("MONGO_URI")
 MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "beluga_control")
@@ -13,6 +14,10 @@ MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "beluga_control")
 _client = AsyncIOMotorClient(MONGO_URI)
 _db = _client[MONGO_DB_NAME]
 guilds = _db["guild_configs"]
+
+# GridFS bucket สำหรับเก็บไฟล์ที่ผู้ใช้อัปโหลด (รูป/ฟอนต์/config) แบบถาวร
+# ไม่หายตอน redeploy บอท (ต่างจากดิสก์ของ Render ที่ล้างทุกครั้งที่ deploy ใหม่)
+assets_bucket = AsyncIOMotorGridFSBucket(_db, bucket_name="assets")
 
 
 async def warm_up():
@@ -109,3 +114,78 @@ async def set_system_enabled(guild_id: int, system_name: str, enabled: bool) -> 
 async def is_system_enabled(guild_id: int, system_name: str) -> bool:
     cfg = await get_guild_config(guild_id)
     return cfg["systems_enabled"].get(system_name, True)
+
+
+async def reset_guild_config(guild_id: int) -> None:
+    """⚡ Force Reset Config — เขียนทับ config ของเซิร์ฟนี้กลับเป็นค่าโรงงานทั้งหมด
+    (ไม่แตะไฟล์ asset ที่อัปโหลดไว้ใน GridFS — อันนั้นต้องลบแยกถ้าต้องการ)"""
+    await guilds.replace_one(
+        {"_id": guild_id}, {"_id": guild_id, **DEFAULT_CONFIG}, upsert=True
+    )
+
+
+# ---------------- Asset Storage (GridFS) ----------------
+# เก็บไฟล์ที่แอดมินอัปโหลดเอง (รูปพื้นหลัง, ฟอนต์, ไฟล์ config) แยกตาม guild_id
+# ไม่ประมวลผล/เรนเดอร์อะไรกับไฟล์เหล่านี้ — เป็นแค่คลังเก็บไฟล์
+
+ALLOWED_ASSET_TYPES = {
+    "image": {".png", ".jpg", ".jpeg", ".webp"},
+    "font": {".ttf", ".otf"},
+    "config": {".json", ".txt"},
+}
+MAX_ASSET_SIZE_BYTES = 5 * 1024 * 1024  # 5MB
+
+
+def detect_asset_type(filename: str) -> str | None:
+    ext = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    for asset_type, extensions in ALLOWED_ASSET_TYPES.items():
+        if ext in extensions:
+            return asset_type
+    return None
+
+
+async def save_asset(guild_id: int, filename: str, data: bytes, asset_type: str, label: str) -> str:
+    """อัปโหลดไฟล์เข้า GridFS คืนค่า file_id เป็น string"""
+    file_id = await assets_bucket.upload_from_stream(
+        filename,
+        data,
+        metadata={
+            "guild_id": guild_id,
+            "asset_type": asset_type,
+            "label": label,
+        },
+    )
+    return str(file_id)
+
+
+async def list_assets(guild_id: int, asset_type: str | None = None) -> list[dict]:
+    query = {"metadata.guild_id": guild_id}
+    if asset_type:
+        query["metadata.asset_type"] = asset_type
+    cursor = assets_bucket.find(query)
+    results = []
+    async for doc in cursor:
+        results.append(
+            {
+                "file_id": str(doc._id),
+                "filename": doc.filename,
+                "label": doc.metadata.get("label", doc.filename),
+                "asset_type": doc.metadata.get("asset_type"),
+                "length": doc.length,
+            }
+        )
+    return results
+
+
+async def get_asset_bytes(file_id: str) -> bytes:
+    stream = await assets_bucket.open_download_stream(ObjectId(file_id))
+    return await stream.read()
+
+
+async def delete_asset(guild_id: int, file_id: str) -> bool:
+    """ลบไฟล์ ตรวจสอบก่อนว่าไฟล์นี้เป็นของ guild นี้จริงก่อนลบ (กันลบข้ามเซิร์ฟ)"""
+    grid_out = await assets_bucket.open_download_stream(ObjectId(file_id))
+    if grid_out.metadata.get("guild_id") != guild_id:
+        return False
+    await assets_bucket.delete(ObjectId(file_id))
+    return True

@@ -51,6 +51,9 @@ INITIAL_COGS = [
     "cogs.antiraid",
     "cogs.autorole",
     "cogs.control_panel",
+    "cogs.assets",
+    "cogs.font",
+    "cogs.force",
 ]
 
 
