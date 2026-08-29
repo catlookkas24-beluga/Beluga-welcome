@@ -13,6 +13,8 @@ from discord.ext import commands
 from dotenv import load_dotenv
 from aiohttp import web
 
+import db
+
 load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
@@ -55,6 +57,11 @@ INITIAL_COGS = [
 @bot.event
 async def on_ready():
     log.info(f"เข้าสู่ระบบในชื่อ {bot.user} (ID: {bot.user.id})")
+    try:
+        await db.warm_up()
+        log.info("เชื่อมต่อ MongoDB สำเร็จ (warmed up)")
+    except Exception as e:
+        log.error(f"เชื่อมต่อ MongoDB ไม่สำเร็จ: {e}")
     try:
         synced = await bot.tree.sync()
         log.info(f"ซิงก์ slash command แล้ว {len(synced)} คำสั่ง")

@@ -14,6 +14,12 @@ _client = AsyncIOMotorClient(MONGO_URI)
 _db = _client[MONGO_DB_NAME]
 guilds = _db["guild_configs"]
 
+
+async def warm_up():
+    """เรียกตอนบอทเริ่มทำงาน เพื่อเปิดการเชื่อมต่อ MongoDB ล่วงหน้า
+    ป้องกัน interaction แรกที่ user สั่งค้าง/timeout เพราะรอ TLS handshake"""
+    await _client.admin.command("ping")
+
 # ค่าเริ่มต้นของแต่ละระบบ — ใช้ตอนเซิร์ฟเวอร์ยังไม่มี config ใน DB เลย
 DEFAULT_CONFIG = {
     "systems_enabled": {
