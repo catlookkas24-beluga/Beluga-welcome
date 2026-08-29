@@ -13,6 +13,31 @@ from discord.ext import commands, tasks
 import db
 
 
+async def sync_guild_roles(guild: discord.Guild) -> int:
+    """เช็คสมาชิกทุกคนในเซิร์ฟ แจกยศตาม autorole timeline ที่ยังไม่ได้ คืนค่าจำนวนคนที่ได้ยศเพิ่ม
+    ใช้ทั้งจาก background task (check_timeline) และคำสั่ง /force-sync-roles"""
+    cfg = (await db.get_guild_config(guild.id))["autorole"]
+    timeline = sorted(cfg["timeline"], key=lambda t: t["days"])
+    now = datetime.now(timezone.utc)
+    granted = 0
+    for member in guild.members:
+        if member.bot or member.joined_at is None:
+            continue
+        days_in_server = (now - member.joined_at).days
+        eligible = [t for t in timeline if t["role_id"] and days_in_server >= t["days"]]
+        if not eligible:
+            continue
+        target = max(eligible, key=lambda t: t["days"])
+        role = guild.get_role(target["role_id"])
+        if role and role not in member.roles:
+            try:
+                await member.add_roles(role, reason="Auto Role Timeline")
+                granted += 1
+            except discord.Forbidden:
+                pass
+    return granted
+
+
 class ClaimRoleView(discord.ui.View):
     """ปุ่มถาวรสำหรับห้อง #รับยศต่างๆ เมื่อ auto_grant ปิดอยู่"""
 
@@ -64,22 +89,7 @@ class AutoRole(commands.Cog):
             cfg = (await db.get_guild_config(guild.id))["autorole"]
             if not cfg.get("auto_grant", True):
                 continue
-            timeline = sorted(cfg["timeline"], key=lambda t: t["days"])
-            now = datetime.now(timezone.utc)
-            for member in guild.members:
-                if member.bot or member.joined_at is None:
-                    continue
-                days_in_server = (now - member.joined_at).days
-                eligible = [t for t in timeline if t["role_id"] and days_in_server >= t["days"]]
-                if not eligible:
-                    continue
-                target = max(eligible, key=lambda t: t["days"])
-                role = guild.get_role(target["role_id"])
-                if role and role not in member.roles:
-                    try:
-                        await member.add_roles(role, reason="Auto Role Timeline")
-                    except discord.Forbidden:
-                        pass
+            await sync_guild_roles(guild)
 
     @check_timeline.before_loop
     async def before_check(self):

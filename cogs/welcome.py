@@ -11,11 +11,12 @@ from discord.ext import commands
 import db
 
 
-def render_variables(text: str, member: discord.Member) -> str:
+def render_variables(text: str, member: discord.Member, use_mention: bool = True) -> str:
     if not text:
         return ""
+    user_value = member.mention if use_mention else member.display_name
     return (
-        text.replace("{user}", member.mention)
+        text.replace("{user}", user_value)
         .replace("{server_name}", member.guild.name)
         .replace("{server_membercount}", str(member.guild.member_count))
     )
@@ -63,36 +64,72 @@ class WelcomeEditorModal(discord.ui.Modal, title="🎨 Welcome Designer"):
             self.add_item(item)
 
     async def on_submit(self, interaction: discord.Interaction):
-        await db.update_guild_section(
-            interaction.guild_id,
-            "welcome",
-            {
-                "title": self.title_input.value,
-                "description": self.description_input.value,
-                "color": self.color_input.value,
-                "image_url": self.image_input.value or None,
-            },
-        )
-        preview = build_welcome_embed(
-            {
-                "title": self.title_input.value,
-                "description": self.description_input.value,
-                "color": self.color_input.value,
-                "image_url": self.image_input.value or None,
-            },
-            interaction.user,
-        )
+        # 🖼️ Wallpaper Live Preview — ยังไม่เซฟลง DB ทันที เก็บไว้ใน view ชั่วคราวก่อน
+        # ให้แอดมินเลือกเองว่าจะ Apply จริงหรือ Cancel ทิ้ง
+        pending_data = {
+            "title": self.title_input.value,
+            "description": self.description_input.value,
+            "color": self.color_input.value,
+            "image_url": self.image_input.value or None,
+        }
+        preview = build_welcome_embed(pending_data, interaction.user)
+        view = WallpaperPreviewView(interaction.guild_id, interaction.user.id, pending_data)
         await interaction.response.send_message(
-            "✅ บันทึกการตั้งค่า Welcome Designer แล้ว นี่คือตัวอย่าง:",
+            "🖼️ นี่คือตัวอย่าง — **ยังไม่ถูกบันทึก** จนกว่าจะกด \"นำไปใช้จริง\"",
             embed=preview,
+            view=view,
             ephemeral=True,
+        )
+
+
+class WallpaperPreviewView(discord.ui.View):
+    """ปุ่มควบคุมของระบบ Wallpaper Live Preview — พรีวิวซ้ำได้/Apply/คืนค่าเดิม"""
+
+    def __init__(self, guild_id: int, editor_id: int, pending_data: dict):
+        super().__init__(timeout=300)
+        self.guild_id = guild_id
+        self.editor_id = editor_id
+        self.pending_data = pending_data
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.editor_id:
+            await interaction.response.send_message(
+                "ปุ่มนี้ใช้ได้เฉพาะคนที่เปิดหน้าต่างแก้ไขนี้เท่านั้นครับ", ephemeral=True
+            )
+            return False
+        return True
+
+    @discord.ui.button(label="พรีวิวตัวอย่าง", emoji="👁️", style=discord.ButtonStyle.secondary)
+    async def preview(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = build_welcome_embed(self.pending_data, interaction.user)
+        await interaction.response.send_message(
+            "👁️ ตัวอย่าง (ยังไม่บันทึก):", embed=embed, ephemeral=True
+        )
+
+    @discord.ui.button(label="นำไปใช้จริง", emoji="✅", style=discord.ButtonStyle.success)
+    async def apply(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await db.update_guild_section(self.guild_id, "welcome", self.pending_data)
+        for item in self.children:
+            item.disabled = True
+        await interaction.response.edit_message(
+            content="✅ บันทึกและนำไปใช้จริงแล้ว!", view=self
+        )
+
+    @discord.ui.button(label="คืนค่าเดิม", emoji="🔄", style=discord.ButtonStyle.danger)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        for item in self.children:
+            item.disabled = True
+        await interaction.response.edit_message(
+            content="🔄 ยกเลิกแล้ว ไม่มีการบันทึกการเปลี่ยนแปลงใด ๆ", embed=None, view=self
         )
 
 
 def build_welcome_embed(cfg: dict, member: discord.Member) -> discord.Embed:
     embed = discord.Embed(
-        title=render_variables(cfg.get("title", ""), member),
-        description=render_variables(cfg.get("description", ""), member),
+        # Discord ไม่ resolve mention ในช่อง title/footer/author เลยใช้ display_name แทน
+        # กันโชว์เป็นรหัสดิบ <@id> เหมือนระบบเก่า
+        title=render_variables(cfg.get("title", ""), member, use_mention=False),
+        description=render_variables(cfg.get("description", ""), member, use_mention=True),
         color=parse_hex_color(cfg.get("color", "#a0d2eb")),
     )
     if cfg.get("image_url"):
@@ -142,6 +179,9 @@ class Welcome(commands.Cog):
             return
         embed = build_welcome_embed(cfg["welcome"], member)
         await channel.send(embed=embed)
+        # ส่ง mention จริงแยกข้อความ วงเล็บต่อท้าย เพื่อให้แจ้งเตือนสมาชิกใหม่ได้จริง
+        # (เหมือนระบบเก่า) เพราะ title ของ embed โชว์ mention แบบกดได้ไม่ได้
+        await channel.send(content=f"({member.mention})")
 
 
 async def setup(bot: commands.Bot):
