@@ -17,7 +17,16 @@ guilds = _db["guild_configs"]
 
 # GridFS bucket สำหรับเก็บไฟล์ที่ผู้ใช้อัปโหลด (รูป/ฟอนต์/config) แบบถาวร
 # ไม่หายตอน redeploy บอท (ต่างจากดิสก์ของ Render ที่ล้างทุกครั้งที่ deploy ใหม่)
-assets_bucket = AsyncIOMotorGridFSBucket(_db, bucket_name="assets")
+# สร้างแบบ lazy (ตอนถูกเรียกใช้ครั้งแรก) เพราะ motor เวอร์ชันใหม่ต้องการ event loop
+# ที่ทำงานอยู่แล้วตอนสร้าง — ถ้าสร้างตอน import module จะ crash ทันที (ยังไม่มี event loop)
+_assets_bucket = None
+
+
+def _get_assets_bucket() -> AsyncIOMotorGridFSBucket:
+    global _assets_bucket
+    if _assets_bucket is None:
+        _assets_bucket = AsyncIOMotorGridFSBucket(_db, bucket_name="assets")
+    return _assets_bucket
 
 
 async def warm_up():
@@ -146,7 +155,7 @@ def detect_asset_type(filename: str) -> str | None:
 
 async def save_asset(guild_id: int, filename: str, data: bytes, asset_type: str, label: str) -> str:
     """อัปโหลดไฟล์เข้า GridFS คืนค่า file_id เป็น string"""
-    file_id = await assets_bucket.upload_from_stream(
+    file_id = await _get_assets_bucket().upload_from_stream(
         filename,
         data,
         metadata={
@@ -162,7 +171,7 @@ async def list_assets(guild_id: int, asset_type: str | None = None) -> list[dict
     query = {"metadata.guild_id": guild_id}
     if asset_type:
         query["metadata.asset_type"] = asset_type
-    cursor = assets_bucket.find(query)
+    cursor = _get_assets_bucket().find(query)
     results = []
     async for doc in cursor:
         results.append(
@@ -178,14 +187,14 @@ async def list_assets(guild_id: int, asset_type: str | None = None) -> list[dict
 
 
 async def get_asset_bytes(file_id: str) -> bytes:
-    stream = await assets_bucket.open_download_stream(ObjectId(file_id))
+    stream = await _get_assets_bucket().open_download_stream(ObjectId(file_id))
     return await stream.read()
 
 
 async def delete_asset(guild_id: int, file_id: str) -> bool:
     """ลบไฟล์ ตรวจสอบก่อนว่าไฟล์นี้เป็นของ guild นี้จริงก่อนลบ (กันลบข้ามเซิร์ฟ)"""
-    grid_out = await assets_bucket.open_download_stream(ObjectId(file_id))
+    grid_out = await _get_assets_bucket().open_download_stream(ObjectId(file_id))
     if grid_out.metadata.get("guild_id") != guild_id:
         return False
-    await assets_bucket.delete(ObjectId(file_id))
+    await _get_assets_bucket().delete(ObjectId(file_id))
     return True
