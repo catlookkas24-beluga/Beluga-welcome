@@ -11,6 +11,7 @@ import logging
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
+from aiohttp import web
 
 load_dotenv()
 
@@ -18,6 +19,22 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("beluga")
 
 TOKEN = os.getenv("DISCORD_TOKEN")
+PORT = int(os.getenv("PORT", "10000"))  # Render จะกำหนด PORT มาให้เองผ่าน env
+
+
+async def health_check(request):
+    return web.Response(text="Beluga bot is alive")
+
+
+async def start_web_server():
+    """เปิด HTTP server เล็ก ๆ ไว้ให้ Render เจอพอร์ต และให้ UptimeRobot ping ได้"""
+    app = web.Application()
+    app.router.add_get("/", health_check)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", PORT)
+    await site.start()
+    log.info(f"เปิด health-check web server ที่พอร์ต {PORT} แล้ว")
 
 intents = discord.Intents.default()
 intents.members = True          # จำเป็นสำหรับ welcome / autorole / antiraid
@@ -46,6 +63,7 @@ async def on_ready():
 
 
 async def main():
+    await start_web_server()
     async with bot:
         for cog in INITIAL_COGS:
             await bot.load_extension(cog)
