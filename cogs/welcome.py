@@ -1,14 +1,23 @@
 """
 cogs/welcome.py — 🎨 Welcome Designer
-แอดมินพิมพ์ /welcome-editor แล้วบอทเด้ง Modal ให้กรอก title/description/hex color/รูป
-รองรับตัวแปร {user} {server_name} {server_membercount} แทรกในข้อความได้เลย
+แอดมินพิมพ์ /welcome-editor แล้วบอทเด้ง Modal ให้กรอก title/description/hex color/รูป/ฟอนต์
+รองรับตัวแปร {user} {user_name} {server_name} {server_membercount} แทรกในข้อความได้เลย
+
+ถ้าใส่ "ฟอนต์" ไว้ด้วย: บอทจะดาวน์โหลดรูปจาก Main Image URL มาใช้เป็นพื้นหลัง
+วาด avatar วงกลม + ข้อความ Title ทับด้วยฟอนต์ที่เลือก แล้วใช้รูปที่เรนเดอร์นี้แทน image ปกติ
+ถ้าเว้นว่างฟอนต์ไว้ ระบบจะทำงานแบบเดิมทุกอย่าง (ใช้ Main Image URL ตรง ๆ)
 """
 
+import io
+
+import aiohttp
 import discord
 from discord import app_commands
 from discord.ext import commands
+from PIL import Image, ImageDraw, ImageFont
 
 import db
+from cogs.font import load_font_bytes, parse_hex_color as parse_hex_rgba
 
 
 def render_variables(text: str, member: discord.Member, use_mention: bool = True) -> str:
@@ -16,7 +25,8 @@ def render_variables(text: str, member: discord.Member, use_mention: bool = True
         return ""
     user_value = member.mention if use_mention else member.display_name
     return (
-        text.replace("{user}", user_value)
+        text.replace("{user_name}", member.display_name)
+        .replace("{user}", user_value)
         .replace("{server_name}", member.guild.name)
         .replace("{server_membercount}", str(member.guild.member_count))
     )
@@ -28,6 +38,100 @@ def parse_hex_color(hex_str: str) -> discord.Color:
         return discord.Color(int(hex_str, 16))
     except (ValueError, AttributeError):
         return discord.Color.blurple()
+
+
+async def fetch_image_bytes(url: str) -> bytes | None:
+    """โหลดรูปจาก URL มาเป็น bytes เอง (ตามด้วย redirect ได้ ต่างจากการฝัง URL ตรงใน embed
+    ที่ Discord ต้องการไฟล์ตรง ๆ เท่านั้น) คืนค่า None ถ้าโหลดไม่สำเร็จ"""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                if resp.status != 200:
+                    return None
+                return await resp.read()
+    except Exception:
+        return None
+
+
+def render_avatar_text_on_background(
+    background_bytes: bytes,
+    avatar_bytes: bytes | None,
+    font_bytes: bytes,
+    text: str,
+    text_color: tuple = (255, 255, 255, 255),
+    font_size: int = 48,
+    avatar_size: int = 128,
+) -> bytes:
+    """วาด avatar วงกลม (กึ่งกลาง) + ข้อความ (ด้านล่าง) ทับบนรูปพื้นหลัง คืนค่าเป็น PNG bytes"""
+    bg = Image.open(io.BytesIO(background_bytes)).convert("RGBA")
+    bg_w, bg_h = bg.size
+
+    if avatar_bytes:
+        avatar = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA").resize((avatar_size, avatar_size))
+        mask = Image.new("L", (avatar_size, avatar_size), 0)
+        ImageDraw.Draw(mask).ellipse((0, 0, avatar_size, avatar_size), fill=255)
+        avatar.putalpha(mask)
+        avatar_pos = ((bg_w - avatar_size) // 2, (bg_h - avatar_size) // 2 - int(bg_h * 0.08))
+        bg.paste(avatar, avatar_pos, avatar)
+
+    draw = ImageDraw.Draw(bg)
+    font_obj = ImageFont.truetype(io.BytesIO(font_bytes), font_size)
+    bbox = draw.textbbox((0, 0), text, font=font_obj)
+    text_w, text_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    text_x = (bg_w - text_w) // 2
+    text_y = bg_h - text_h - int(bg_h * 0.10)
+    draw.text((text_x - bbox[0], text_y - bbox[1]), text, font=font_obj, fill=text_color)
+
+    buf = io.BytesIO()
+    bg.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def build_welcome_embed(cfg: dict, member: discord.Member) -> discord.Embed:
+    embed = discord.Embed(
+        # Discord ไม่ resolve mention ในช่อง title/footer/author เลยใช้ display_name แทน
+        # กันโชว์เป็นรหัสดิบ <@id> เหมือนระบบเก่า
+        title=render_variables(cfg.get("title", ""), member, use_mention=False),
+        description=render_variables(cfg.get("description", ""), member, use_mention=True),
+        color=parse_hex_color(cfg.get("color", "#a0d2eb")),
+    )
+    if cfg.get("image_url"):
+        embed.set_image(url=cfg["image_url"])
+    embed.set_thumbnail(url=member.display_avatar.url)
+    return embed
+
+
+async def build_welcome_message(
+    cfg: dict, member: discord.Member, guild_id: int
+) -> tuple[discord.Embed, discord.File | None]:
+    """สร้าง embed ต้อนรับ — ถ้าตั้งฟอนต์ไว้ด้วย จะพยายามเรนเดอร์ avatar+ข้อความทับพื้นหลังให้
+    ถ้าเรนเดอร์ไม่สำเร็จ (โหลดรูป/ฟอนต์ไม่ได้) จะ fallback ไปใช้ Main Image URL แบบปกติเงียบ ๆ"""
+    embed = build_welcome_embed(cfg, member)
+    file = None
+
+    font_key = cfg.get("font_key")
+    image_url = cfg.get("image_url")
+    if font_key and image_url:
+        bg_bytes = await fetch_image_bytes(image_url)
+        if bg_bytes:
+            loaded_font = await load_font_bytes(guild_id, font_key)
+            if loaded_font:
+                font_bytes, _ = loaded_font
+                try:
+                    avatar_bytes = await member.display_avatar.replace(size=256).read()
+                except Exception:
+                    avatar_bytes = None
+                text = render_variables(cfg.get("title", ""), member, use_mention=False)
+                try:
+                    image_bytes = render_avatar_text_on_background(
+                        bg_bytes, avatar_bytes, font_bytes, text
+                    )
+                    file = discord.File(io.BytesIO(image_bytes), filename="welcome_composite.png")
+                    embed.set_image(url="attachment://welcome_composite.png")
+                except Exception:
+                    file = None  # เรนเดอร์พัง — ปล่อยให้ embed ใช้ image_url ปกติต่อไป (ตั้งไว้แล้วด้านบน)
+
+    return embed, file
 
 
 class WelcomeEditorModal(discord.ui.Modal, title="🎨 Welcome Designer"):
@@ -55,15 +159,24 @@ class WelcomeEditorModal(discord.ui.Modal, title="🎨 Welcome Designer"):
             required=False,
             max_length=500,
         )
+        self.font_input = discord.ui.TextInput(
+            label="ฟอนต์ (ไม่บังคับ) ดูชื่อจาก /font-list",
+            placeholder="เช่น mali, pattaya (เว้นว่าง = ไม่วาดทับรูป)",
+            default=current.get("font_key") or "",
+            required=False,
+            max_length=100,
+        )
         for item in (
             self.title_input,
             self.description_input,
             self.color_input,
             self.image_input,
+            self.font_input,
         ):
             self.add_item(item)
 
     async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
         # 🖼️ Wallpaper Live Preview — ยังไม่เซฟลง DB ทันที เก็บไว้ใน view ชั่วคราวก่อน
         # ให้แอดมินเลือกเองว่าจะ Apply จริงหรือ Cancel ทิ้ง
         pending_data = {
@@ -71,15 +184,19 @@ class WelcomeEditorModal(discord.ui.Modal, title="🎨 Welcome Designer"):
             "description": self.description_input.value,
             "color": self.color_input.value,
             "image_url": self.image_input.value or None,
+            "font_key": self.font_input.value.strip() or None,
         }
-        preview = build_welcome_embed(pending_data, interaction.user)
+        embed, file = await build_welcome_message(pending_data, interaction.user, interaction.guild_id)
         view = WallpaperPreviewView(interaction.guild_id, interaction.user.id, pending_data)
-        await interaction.response.send_message(
-            "🖼️ นี่คือตัวอย่าง — **ยังไม่ถูกบันทึก** จนกว่าจะกด \"นำไปใช้จริง\"",
-            embed=preview,
-            view=view,
-            ephemeral=True,
-        )
+        kwargs = {
+            "content": "🖼️ นี่คือตัวอย่าง — **ยังไม่ถูกบันทึก** จนกว่าจะกด \"นำไปใช้จริง\"",
+            "embed": embed,
+            "view": view,
+            "ephemeral": True,
+        }
+        if file:
+            kwargs["file"] = file
+        await interaction.followup.send(**kwargs)
 
 
 class WallpaperPreviewView(discord.ui.View):
@@ -101,10 +218,12 @@ class WallpaperPreviewView(discord.ui.View):
 
     @discord.ui.button(label="พรีวิวตัวอย่าง", emoji="👁️", style=discord.ButtonStyle.secondary)
     async def preview(self, interaction: discord.Interaction, button: discord.ui.Button):
-        embed = build_welcome_embed(self.pending_data, interaction.user)
-        await interaction.response.send_message(
-            "👁️ ตัวอย่าง (ยังไม่บันทึก):", embed=embed, ephemeral=True
-        )
+        await interaction.response.defer(ephemeral=True)
+        embed, file = await build_welcome_message(self.pending_data, interaction.user, self.guild_id)
+        kwargs = {"content": "👁️ ตัวอย่าง (ยังไม่บันทึก):", "embed": embed, "ephemeral": True}
+        if file:
+            kwargs["file"] = file
+        await interaction.followup.send(**kwargs)
 
     @discord.ui.button(label="นำไปใช้จริง", emoji="✅", style=discord.ButtonStyle.success)
     async def apply(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -122,20 +241,6 @@ class WallpaperPreviewView(discord.ui.View):
         await interaction.response.edit_message(
             content="🔄 ยกเลิกแล้ว ไม่มีการบันทึกการเปลี่ยนแปลงใด ๆ", embed=None, view=self
         )
-
-
-def build_welcome_embed(cfg: dict, member: discord.Member) -> discord.Embed:
-    embed = discord.Embed(
-        # Discord ไม่ resolve mention ในช่อง title/footer/author เลยใช้ display_name แทน
-        # กันโชว์เป็นรหัสดิบ <@id> เหมือนระบบเก่า
-        title=render_variables(cfg.get("title", ""), member, use_mention=False),
-        description=render_variables(cfg.get("description", ""), member, use_mention=True),
-        color=parse_hex_color(cfg.get("color", "#a0d2eb")),
-    )
-    if cfg.get("image_url"):
-        embed.set_image(url=cfg["image_url"])
-    embed.set_thumbnail(url=member.display_avatar.url)
-    return embed
 
 
 class Welcome(commands.Cog):
@@ -178,17 +283,9 @@ class Welcome(commands.Cog):
         if channel is None:
             return
 
-        embed = build_welcome_embed(cfg["welcome"], member)
-
-        # 🖼️🔤 เช็คว่าเปิด Welcome Image Composite ไว้ไหม (avatar วงกลม + ข้อความฟอนต์ custom
-        # ทับพื้นหลังที่อัปโหลดเอง) ถ้าเปิดและตั้งค่าครบ จะแทนที่ image ของ embed ด้วยรูปที่เรนเดอร์สด
-        # ใช้ local import ตรงนี้เพื่อกัน circular import (welcome_image.py import จากไฟล์นี้กลับไป)
-        from cogs.welcome_image import build_composite_file
-
-        composite_file = await build_composite_file(member.guild.id, member)
-        if composite_file is not None:
-            embed.set_image(url="attachment://welcome_composite.png")
-            await channel.send(embed=embed, file=composite_file)
+        embed, file = await build_welcome_message(cfg["welcome"], member, member.guild.id)
+        if file:
+            await channel.send(embed=embed, file=file)
         else:
             await channel.send(embed=embed)
 
