@@ -53,7 +53,6 @@ INITIAL_COGS = [
     "cogs.control_panel",
     "cogs.assets",
     "cogs.font",
-    "cogs.welcome_image",
     "cogs.permissions",
     "cogs.force",
 ]
