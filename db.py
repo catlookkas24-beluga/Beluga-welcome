@@ -50,10 +50,23 @@ DEFAULT_CONFIG = {
         "color": "#a0d2eb",
         "image_url": None,
     },
+    "welcome_image": {
+        "enabled": False,
+        "background_asset_id": None,
+        "font_key": "mali",
+        "text_template": "ยินดีต้อนรับ {user_name}",
+        "text_color": "#ffffff",
+        "font_size": 48,
+        "text_position": "bottom",
+        "avatar_enabled": True,
+        "avatar_size": 128,
+        "avatar_position": "center",
+    },
     "verify": {
         "channel_id": None,
         "role_id": None,
         "explain_text": "ยืนยันตัวตนเพื่อป้องกันบอทและผู้ใช้ปลอม ช่วยให้เซิร์ฟเวอร์ปลอดภัยขึ้นครับ",
+        "banner_asset_id": None,
     },
     "rules": {
         "channel_id": None,
