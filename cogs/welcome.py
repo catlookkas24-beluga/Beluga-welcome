@@ -177,8 +177,21 @@ class Welcome(commands.Cog):
         channel = member.guild.get_channel(channel_id)
         if channel is None:
             return
+
         embed = build_welcome_embed(cfg["welcome"], member)
-        await channel.send(embed=embed)
+
+        # 🖼️🔤 เช็คว่าเปิด Welcome Image Composite ไว้ไหม (avatar วงกลม + ข้อความฟอนต์ custom
+        # ทับพื้นหลังที่อัปโหลดเอง) ถ้าเปิดและตั้งค่าครบ จะแทนที่ image ของ embed ด้วยรูปที่เรนเดอร์สด
+        # ใช้ local import ตรงนี้เพื่อกัน circular import (welcome_image.py import จากไฟล์นี้กลับไป)
+        from cogs.welcome_image import build_composite_file
+
+        composite_file = await build_composite_file(member.guild.id, member)
+        if composite_file is not None:
+            embed.set_image(url="attachment://welcome_composite.png")
+            await channel.send(embed=embed, file=composite_file)
+        else:
+            await channel.send(embed=embed)
+
         # ส่ง mention จริงแยกข้อความ วงเล็บต่อท้าย เพื่อให้แจ้งเตือนสมาชิกใหม่ได้จริง
         # (เหมือนระบบเก่า) เพราะ title ของ embed โชว์ mention แบบกดได้ไม่ได้
         await channel.send(content=f"({member.mention})")
