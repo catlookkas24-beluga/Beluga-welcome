@@ -50,6 +50,7 @@ DEFAULT_CONFIG = {
         "antiraid": True,
         "autorole": True,
         "activity": True,
+        "goodbye": True,
     },
     # 🔑 Custom Command Permissions — { "command-name": [role_id, role_id, ...] }
     # ว่างเปล่า = ยังไม่ตั้งค่าอะไร (แปลว่าต้องมี Manage Server เท่านั้นถึงใช้ได้ ตามค่าเดิม)
@@ -59,6 +60,14 @@ DEFAULT_CONFIG = {
         "title": "🎉 ยินดีต้อนรับ {user} สู่ {server_name}!",
         "description": "ตอนนี้เซิร์ฟเวอร์มี {server_membercount} สมาชิกแล้ว!",
         "color": "#a0d2eb",
+        "image_url": None,
+        "font_key": None,
+    },
+    "goodbye": {
+        "channel_id": None,
+        "title": "👋 ลาก่อน {user_name}",
+        "description": "ขอให้โชคดีนะครับ หวังว่าจะได้เจอกันอีก",
+        "color": "#6b7280",
         "image_url": None,
         "font_key": None,
     },

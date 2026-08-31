@@ -46,6 +46,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 INITIAL_COGS = [
     "cogs.welcome",
+    "cogs.goodbye",
     "cogs.verify",
     "cogs.rules",
     "cogs.antiraid",
