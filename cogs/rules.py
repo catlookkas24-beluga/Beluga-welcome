@@ -9,6 +9,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import db
+from checks import require_permission
 
 
 def build_rules_embed(cfg: dict) -> discord.Embed:
@@ -68,7 +69,7 @@ class Rules(commands.Cog):
         self.bot = bot
 
     @app_commands.command(name="rules-editor", description="เปิดหน้าต่างแก้ไขกฎ (แอดมินเท่านั้น)")
-    @app_commands.checks.has_permissions(manage_guild=True)
+    @require_permission()
     async def rules_editor(self, interaction: discord.Interaction):
         cfg = await db.get_guild_config(interaction.guild_id)
         await interaction.response.send_modal(RulesEditorModal(cfg["rules"]))
@@ -76,7 +77,7 @@ class Rules(commands.Cog):
     @app_commands.command(
         name="rules-post", description="โพสต์ข้อความกฎในห้องนี้ (ผูกไว้เพื่ออัปเดตอัตโนมัติในอนาคต)"
     )
-    @app_commands.checks.has_permissions(manage_guild=True)
+    @require_permission()
     async def rules_post(self, interaction: discord.Interaction):
         cfg = await db.get_guild_config(interaction.guild_id)
         embed = build_rules_embed(cfg["rules"])

@@ -8,6 +8,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import db
+from checks import require_permission
 from cogs.autorole import sync_guild_roles
 from cogs.welcome import build_welcome_embed
 
@@ -20,7 +21,7 @@ class Force(commands.Cog):
         name="force-sync-roles",
         description="⚡ บังคับตรวจเช็คและแจกยศ Auto Role ย้อนหลังให้สมาชิกทุกคน (แอดมินเท่านั้น)",
     )
-    @app_commands.checks.has_permissions(manage_guild=True)
+    @require_permission()
     async def force_sync_roles(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         granted = await sync_guild_roles(interaction.guild)
@@ -32,7 +33,7 @@ class Force(commands.Cog):
         name="force-overwrite-welcome",
         description="⚡ ลบข้อความต้อนรับเก่าในห้องนี้แล้วโพสต์เวอร์ชันล่าสุดทับ (แอดมินเท่านั้น)",
     )
-    @app_commands.checks.has_permissions(manage_guild=True)
+    @require_permission()
     async def force_overwrite_welcome(self, interaction: discord.Interaction, limit: int = 20):
         await interaction.response.defer(ephemeral=True)
         cfg = await db.get_guild_config(interaction.guild_id)
@@ -54,7 +55,7 @@ class Force(commands.Cog):
         name="force-reset-config",
         description="⚡ คืนค่าโรงงานทุกระบบของเซิร์ฟนี้ (ล้างการตั้งค่าทั้งหมด แอดมินเท่านั้น)",
     )
-    @app_commands.checks.has_permissions(manage_guild=True)
+    @require_permission()
     async def force_reset_config(self, interaction: discord.Interaction, confirm: bool):
         if not confirm:
             await interaction.response.send_message(

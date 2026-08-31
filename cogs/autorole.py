@@ -11,6 +11,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 import db
+from checks import require_permission
 
 
 async def sync_guild_roles(guild: discord.Guild) -> int:
@@ -98,7 +99,7 @@ class AutoRole(commands.Cog):
     @app_commands.command(
         name="autorole-set", description="ตั้งค่ายศตามจำนวนวันในเซิร์ฟ (แอดมินเท่านั้น)"
     )
-    @app_commands.checks.has_permissions(manage_guild=True)
+    @require_permission()
     @app_commands.describe(days="จำนวนวันที่ต้องอยู่ในเซิร์ฟ", role="ยศที่จะได้รับ", label="ชื่อระดับ (เช่น Member, Veteran)")
     async def autorole_set(
         self, interaction: discord.Interaction, days: int, role: discord.Role, label: str
@@ -114,7 +115,7 @@ class AutoRole(commands.Cog):
     @app_commands.command(
         name="autorole-mode", description="เลือกโหมด: แจกอัตโนมัติ หรือ ให้กดรับเอง (แอดมินเท่านั้น)"
     )
-    @app_commands.checks.has_permissions(manage_guild=True)
+    @require_permission()
     @app_commands.choices(
         mode=[
             app_commands.Choice(name="แจกอัตโนมัติ", value="auto"),
@@ -130,7 +131,7 @@ class AutoRole(commands.Cog):
     @app_commands.command(
         name="autorole-post-claim", description="โพสต์ปุ่มรับยศในห้องนี้ (แอดมินเท่านั้น)"
     )
-    @app_commands.checks.has_permissions(manage_guild=True)
+    @require_permission()
     async def autorole_post_claim(self, interaction: discord.Interaction):
         embed = discord.Embed(
             title="🏅 รับยศตามอายุสมาชิก",

@@ -12,6 +12,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import db
+from checks import require_permission
 
 
 class AntiRaid(commands.Cog):
@@ -61,7 +62,7 @@ class AntiRaid(commands.Cog):
     @app_commands.command(
         name="antiraid-config", description="ตั้งค่าระบบป้องกัน Raid (แอดมินเท่านั้น)"
     )
-    @app_commands.checks.has_permissions(manage_guild=True)
+    @require_permission()
     @app_commands.describe(
         join_threshold="จำนวนคนเข้าเซิร์ฟที่ถือว่าผิดปกติ",
         window_seconds="ภายในกี่วินาที",

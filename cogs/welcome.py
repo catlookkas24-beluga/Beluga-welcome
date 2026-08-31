@@ -17,6 +17,7 @@ from discord.ext import commands
 from PIL import Image, ImageDraw, ImageFont
 
 import db
+from checks import require_permission
 from cogs.font import load_font_bytes, parse_hex_color as parse_hex_rgba
 
 
@@ -250,7 +251,7 @@ class Welcome(commands.Cog):
     @app_commands.command(
         name="welcome-editor", description="เปิดหน้าต่างแก้ไข embed ต้อนรับ (แอดมินเท่านั้น)"
     )
-    @app_commands.checks.has_permissions(manage_guild=True)
+    @require_permission()
     async def welcome_editor(self, interaction: discord.Interaction):
         cfg = await db.get_guild_config(interaction.guild_id)
         await interaction.response.send_modal(WelcomeEditorModal(cfg["welcome"]))
@@ -258,7 +259,7 @@ class Welcome(commands.Cog):
     @app_commands.command(
         name="welcome-set-channel", description="ตั้งห้องที่จะโพสต์ข้อความต้อนรับ (แอดมินเท่านั้น)"
     )
-    @app_commands.checks.has_permissions(manage_guild=True)
+    @require_permission()
     async def welcome_set_channel(
         self, interaction: discord.Interaction, channel: discord.TextChannel
     ):

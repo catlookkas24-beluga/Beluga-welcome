@@ -9,6 +9,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import db
+from checks import require_permission
 
 TYPE_LABELS = {"image": "🖼️ รูปภาพ", "font": "🔤 ฟอนต์", "config": "📄 Config/Text"}
 
@@ -20,7 +21,7 @@ class Assets(commands.Cog):
     @app_commands.command(
         name="asset-upload", description="อัปโหลดไฟล์ (รูป/ฟอนต์/config) เก็บถาวร (แอดมินเท่านั้น)"
     )
-    @app_commands.checks.has_permissions(manage_guild=True)
+    @require_permission()
     @app_commands.describe(
         file="ไฟล์ที่จะอัปโหลด (.png .jpg .jpeg .webp / .ttf .otf / .json .txt)",
         label="ชื่อเรียกไฟล์นี้ (เอาไว้เลือกใช้ทีหลัง)",
@@ -55,7 +56,7 @@ class Assets(commands.Cog):
         )
 
     @app_commands.command(name="asset-list", description="ดูรายชื่อไฟล์ที่อัปโหลดไว้ทั้งหมด")
-    @app_commands.checks.has_permissions(manage_guild=True)
+    @require_permission()
     async def asset_list(self, interaction: discord.Interaction):
         assets = await db.list_assets(interaction.guild_id)
         if not assets:
@@ -77,7 +78,7 @@ class Assets(commands.Cog):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(name="asset-delete", description="ลบไฟล์ที่อัปโหลดไว้ (แอดมินเท่านั้น)")
-    @app_commands.checks.has_permissions(manage_guild=True)
+    @require_permission()
     @app_commands.describe(file_id="ID ของไฟล์ (ดูได้จาก /asset-list)")
     async def asset_delete(self, interaction: discord.Interaction, file_id: str):
         try:

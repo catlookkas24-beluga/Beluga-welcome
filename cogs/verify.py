@@ -11,6 +11,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import db
+from checks import require_permission
 
 
 async def build_verify_panel_message(guild_id: int) -> tuple[discord.Embed, discord.File | None]:
@@ -131,7 +132,7 @@ class Verify(commands.Cog):
     @app_commands.command(
         name="verify-set-role", description="ตั้งยศที่จะมอบให้หลังยืนยันตัวตน (แอดมินเท่านั้น)"
     )
-    @app_commands.checks.has_permissions(manage_guild=True)
+    @require_permission()
     async def verify_set_role(self, interaction: discord.Interaction):
         await interaction.response.send_message(
             "เลือกยศจากเมนูด้านล่าง:", view=RoleSelectView(), ephemeral=True
@@ -140,7 +141,7 @@ class Verify(commands.Cog):
     @app_commands.command(
         name="verify-set-explain", description="แก้ไขข้อความ 'ทำไมต้องยืนยัน' (แอดมินเท่านั้น)"
     )
-    @app_commands.checks.has_permissions(manage_guild=True)
+    @require_permission()
     async def verify_set_explain(self, interaction: discord.Interaction):
         cfg = await db.get_guild_config(interaction.guild_id)
         await interaction.response.send_modal(
@@ -151,7 +152,7 @@ class Verify(commands.Cog):
         name="verify-set-banner",
         description="ตั้งภาพประกอบ (banner) ด้านบนแผงยืนยันตัวตน (แอดมินเท่านั้น)",
     )
-    @app_commands.checks.has_permissions(manage_guild=True)
+    @require_permission()
     async def verify_set_banner(self, interaction: discord.Interaction, image: discord.Attachment):
         asset_type = db.detect_asset_type(image.filename)
         if asset_type != "image":
@@ -178,7 +179,7 @@ class Verify(commands.Cog):
         name="verify-setup-gate",
         description="🚪 สร้างห้องยืนยันตัวตน+กฎอัตโนมัติ และล็อกไม่ให้คนที่ยังไม่มียศเห็นห้องอื่นเลย (แอดมินเท่านั้น)",
     )
-    @app_commands.checks.has_permissions(manage_guild=True, manage_channels=True, manage_roles=True)
+    @require_permission()
     @app_commands.describe(
         verified_role="ยศที่จะแจกหลังยืนยันตัวตน (คนที่มียศนี้จะเห็นห้องอื่นทั้งหมด)"
     )
@@ -256,7 +257,7 @@ class Verify(commands.Cog):
     @app_commands.command(
         name="verify-post-panel", description="โพสต์แผงปุ่มยืนยันตัวตนในห้องนี้ (แอดมินเท่านั้น)"
     )
-    @app_commands.checks.has_permissions(manage_guild=True)
+    @require_permission()
     async def verify_post_panel(self, interaction: discord.Interaction):
         embed, file = await build_verify_panel_message(interaction.guild_id)
         if file:

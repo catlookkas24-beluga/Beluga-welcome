@@ -9,6 +9,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from checks import require_permission
+
 # Thai label -> ชื่อ attribute ของ discord.PermissionOverwrite
 PERMISSION_MAP = {
     "ดูห้อง": "view_channel",
@@ -111,7 +113,7 @@ class Permissions(commands.Cog):
         name="permission-set",
         description="ตั้งสิทธิ์ของยศในห้องต่างๆ ทั้งเซิร์ฟหรือเฉพาะหมวดหมู่ (แอดมินเท่านั้น)",
     )
-    @app_commands.checks.has_permissions(manage_guild=True)
+    @require_permission()
     @app_commands.describe(
         role="ยศที่จะตั้งสิทธิ์",
         permission="สิทธิ์ที่จะปรับ",
@@ -161,7 +163,7 @@ class Permissions(commands.Cog):
         name="permission-set-bulk",
         description="ตั้งสิทธิ์ยศได้หลายหมวดหมู่พร้อมกันในคำสั่งเดียว (แอดมินเท่านั้น)",
     )
-    @app_commands.checks.has_permissions(manage_guild=True)
+    @require_permission()
     @app_commands.describe(
         role="ยศที่จะตั้งสิทธิ์",
         permission="สิทธิ์ที่จะปรับ",
@@ -194,7 +196,7 @@ class Permissions(commands.Cog):
     @app_commands.command(
         name="permission-view", description="ดูว่ายศนี้มีสิทธิ์พิเศษ (override) ในห้องไหนบ้าง"
     )
-    @app_commands.checks.has_permissions(manage_guild=True)
+    @require_permission()
     async def permission_view(self, interaction: discord.Interaction, role: discord.Role):
         await interaction.response.defer(ephemeral=True)
         lines = []
