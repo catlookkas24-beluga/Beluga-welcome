@@ -5,6 +5,7 @@ db.py
 """
 
 import os
+from datetime import datetime, timedelta, timezone
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorGridFSBucket
 from bson import ObjectId
 
@@ -14,6 +15,12 @@ MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "beluga_control")
 _client = AsyncIOMotorClient(MONGO_URI)
 _db = _client[MONGO_DB_NAME]
 guilds = _db["guild_configs"]
+
+# 📊 Activity/Stats Dashboard — เก็บสถิติข้อความ/เวลาเข้าเสียงแยกกัน 2 collection:
+# - activity_totals: ยอดรวมตลอดกาลต่อคน (rank เร็ว ไม่ต้อง aggregate ทุกครั้ง)
+# - activity_daily: ยอดรายวัน ใช้ทำกราฟและสรุป 7/30 วัน
+activity_totals = _db["activity_totals"]
+activity_daily = _db["activity_daily"]
 
 # GridFS bucket สำหรับเก็บไฟล์ที่ผู้ใช้อัปโหลด (รูป/ฟอนต์/config) แบบถาวร
 # ไม่หายตอน redeploy บอท (ต่างจากดิสก์ของ Render ที่ล้างทุกครั้งที่ deploy ใหม่)
@@ -42,7 +49,11 @@ DEFAULT_CONFIG = {
         "rules": True,
         "antiraid": True,
         "autorole": True,
+        "activity": True,
     },
+    # 🔑 Custom Command Permissions — { "command-name": [role_id, role_id, ...] }
+    # ว่างเปล่า = ยังไม่ตั้งค่าอะไร (แปลว่าต้องมี Manage Server เท่านั้นถึงใช้ได้ ตามค่าเดิม)
+    "command_permissions": {},
     "welcome": {
         "channel_id": None,
         "title": "🎉 ยินดีต้อนรับ {user} สู่ {server_name}!",
@@ -200,3 +211,160 @@ async def delete_asset(guild_id: int, file_id: str) -> bool:
         return False
     await _get_assets_bucket().delete(ObjectId(file_id))
     return True
+
+
+# ---------------- Activity / Stats Dashboard ----------------
+
+
+def _totals_id(guild_id: int, user_id: int) -> str:
+    return f"{guild_id}:{user_id}"
+
+
+def _daily_id(guild_id: int, user_id: int, date_str: str) -> str:
+    return f"{guild_id}:{user_id}:{date_str}"
+
+
+def _today_str() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+async def track_message(guild_id: int, user_id: int, channel_id: int) -> None:
+    """เรียกทุกครั้งที่มีข้อความใหม่ (ไม่นับบอท) — อัปเดตทั้งยอดรวมและยอดรายวัน"""
+    channel_key = str(channel_id)
+    await activity_totals.update_one(
+        {"_id": _totals_id(guild_id, user_id)},
+        {
+            "$set": {"guild_id": guild_id, "user_id": user_id},
+            "$inc": {"total_messages": 1, f"channel_counts.{channel_key}": 1},
+        },
+        upsert=True,
+    )
+    date_str = _today_str()
+    await activity_daily.update_one(
+        {"_id": _daily_id(guild_id, user_id, date_str)},
+        {
+            "$set": {"guild_id": guild_id, "user_id": user_id, "date": date_str},
+            "$inc": {"messages": 1},
+        },
+        upsert=True,
+    )
+
+
+async def track_voice_time(guild_id: int, user_id: int, seconds: int) -> None:
+    """เรียกตอนสมาชิกออกจากห้องเสียง — บวกเวลาที่อยู่ในห้องเสียง (วินาที)"""
+    if seconds <= 0:
+        return
+    await activity_totals.update_one(
+        {"_id": _totals_id(guild_id, user_id)},
+        {
+            "$set": {"guild_id": guild_id, "user_id": user_id},
+            "$inc": {"total_voice_seconds": seconds},
+        },
+        upsert=True,
+    )
+    date_str = _today_str()
+    await activity_daily.update_one(
+        {"_id": _daily_id(guild_id, user_id, date_str)},
+        {
+            "$set": {"guild_id": guild_id, "user_id": user_id, "date": date_str},
+            "$inc": {"voice_seconds": seconds},
+        },
+        upsert=True,
+    )
+
+
+async def get_user_totals(guild_id: int, user_id: int) -> dict:
+    doc = await activity_totals.find_one({"_id": _totals_id(guild_id, user_id)})
+    if doc is None:
+        return {"total_messages": 0, "total_voice_seconds": 0, "channel_counts": {}}
+    return {
+        "total_messages": doc.get("total_messages", 0),
+        "total_voice_seconds": doc.get("total_voice_seconds", 0),
+        "channel_counts": doc.get("channel_counts", {}),
+    }
+
+
+async def get_window_sum(guild_id: int, user_id: int, days: int) -> tuple:
+    """รวมยอดข้อความ/เวลาเสียง ย้อนหลัง N วัน (รวมวันนี้) คืนค่า (messages, voice_seconds)"""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days - 1)).strftime("%Y-%m-%d")
+    cursor = activity_daily.find(
+        {"guild_id": guild_id, "user_id": user_id, "date": {"$gte": cutoff}}
+    )
+    messages, voice_seconds = 0, 0
+    async for doc in cursor:
+        messages += doc.get("messages", 0)
+        voice_seconds += doc.get("voice_seconds", 0)
+    return messages, voice_seconds
+
+
+async def get_rank(guild_id: int, user_id: int, metric: str) -> tuple:
+    """metric = 'total_messages' หรือ 'total_voice_seconds' — คืนค่า (rank, จำนวนคนที่มีสถิติทั้งหมด)"""
+    my_doc = await activity_totals.find_one({"_id": _totals_id(guild_id, user_id)})
+    my_value = my_doc.get(metric, 0) if my_doc else 0
+    higher_count = await activity_totals.count_documents(
+        {"guild_id": guild_id, metric: {"$gt": my_value}}
+    )
+    total_count = await activity_totals.count_documents({"guild_id": guild_id})
+    return higher_count + 1, total_count
+
+
+async def get_daily_series(guild_id: int, user_id: int, days: int = 14) -> list:
+    """คืนค่า list ของ (date_str, messages, voice_seconds) เรียงจากเก่าไปใหม่ ครบทุกวันแม้ไม่มีข้อมูล"""
+    today = datetime.now(timezone.utc).date()
+    date_list = [(today - timedelta(days=i)) for i in range(days - 1, -1, -1)]
+    date_strs = [d.strftime("%Y-%m-%d") for d in date_list]
+    cursor = activity_daily.find(
+        {"guild_id": guild_id, "user_id": user_id, "date": {"$in": date_strs}}
+    )
+    by_date = {}
+    async for doc in cursor:
+        by_date[doc["date"]] = (doc.get("messages", 0), doc.get("voice_seconds", 0))
+    return [(d, *by_date.get(d, (0, 0))) for d in date_strs]
+
+
+async def get_leaderboard(guild_id: int, metric: str, limit: int = 10) -> list:
+    """metric = 'total_messages' หรือ 'total_voice_seconds' — คืนค่า list ของ (user_id, value)"""
+    cursor = activity_totals.find({"guild_id": guild_id}).sort(metric, -1).limit(limit)
+    results = []
+    async for doc in cursor:
+        results.append((doc["user_id"], doc.get(metric, 0)))
+    return results
+
+
+async def get_top_channels(guild_id: int, user_id: int, limit: int = 3) -> list:
+    """คืนค่า list ของ (channel_id, count) เรียงมากไปน้อย"""
+    doc = await activity_totals.find_one({"_id": _totals_id(guild_id, user_id)})
+    if not doc or "channel_counts" not in doc:
+        return []
+    counts = doc["channel_counts"]
+    sorted_channels = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:limit]
+    return [(int(ch_id), count) for ch_id, count in sorted_channels]
+
+
+# ---------------- Custom Command Permissions ----------------
+# ให้แอดมินกำหนดได้ว่ายศไหนใช้คำสั่งไหนได้บ้าง แยกจากสิทธิ์ Manage Server ของ Discord เอง
+# คนที่มี Manage Server ใช้ได้ทุกคำสั่งเสมอ (bypass) — อันนี้ใช้ปลดล็อกให้ยศอื่นเพิ่มเติม
+
+async def get_allowed_roles(guild_id: int, command_name: str) -> list:
+    cfg = await get_guild_config(guild_id)
+    return cfg.get("command_permissions", {}).get(command_name, [])
+
+
+async def add_allowed_role(guild_id: int, command_name: str, role_id: int) -> None:
+    await guilds.update_one(
+        {"_id": guild_id},
+        {"$addToSet": {f"command_permissions.{command_name}": role_id}},
+        upsert=True,
+    )
+
+
+async def remove_allowed_role(guild_id: int, command_name: str, role_id: int) -> None:
+    await guilds.update_one(
+        {"_id": guild_id},
+        {"$pull": {f"command_permissions.{command_name}": role_id}},
+    )
+
+
+async def get_all_command_permissions(guild_id: int) -> dict:
+    cfg = await get_guild_config(guild_id)
+    return cfg.get("command_permissions", {})

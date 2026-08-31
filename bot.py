@@ -54,6 +54,8 @@ INITIAL_COGS = [
     "cogs.assets",
     "cogs.font",
     "cogs.permissions",
+    "cogs.activity",
+    "cogs.cmdperms",
     "cogs.force",
 ]
 
