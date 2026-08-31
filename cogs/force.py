@@ -8,7 +8,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import db
-from checks import require_permission
+from .checks import require_permission
 from cogs.autorole import sync_guild_roles
 from cogs.welcome import build_welcome_embed
 

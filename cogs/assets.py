@@ -9,7 +9,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import db
-from checks import require_permission
+from .checks import require_permission
 
 TYPE_LABELS = {"image": "🖼️ รูปภาพ", "font": "🔤 ฟอนต์", "config": "📄 Config/Text"}
 
