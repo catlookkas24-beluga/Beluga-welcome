@@ -11,7 +11,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import db
-from checks import require_permission
+from .checks import require_permission
 
 
 async def build_verify_panel_message(guild_id: int) -> tuple[discord.Embed, discord.File | None]:
