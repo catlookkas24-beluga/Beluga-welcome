@@ -17,7 +17,7 @@ from discord.ext import commands
 from PIL import Image, ImageDraw, ImageFont
 
 import db
-from checks import require_permission
+from cogs.checks import require_permission
 from cogs.font import load_font_bytes, parse_hex_color as parse_hex_rgba
 
 
