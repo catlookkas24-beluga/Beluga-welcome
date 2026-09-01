@@ -12,6 +12,7 @@ from discord.ext import commands
 
 import db
 from checks import require_permission
+from cogs.welcome import parse_hex_color
 
 
 async def build_verify_panel_message(guild_id: int) -> tuple[discord.Embed, discord.File | None]:
@@ -23,7 +24,7 @@ async def build_verify_panel_message(guild_id: int) -> tuple[discord.Embed, disc
     embed = discord.Embed(
         title="ยืนยันตัวตน",
         description="กดปุ่มด้านล่างเพื่อยืนยันตัวตนและเข้าใช้งานเซิร์ฟเวอร์แบบเต็มรูปแบบ",
-        color=discord.Color.green(),
+        color=parse_hex_color(cfg["verify"].get("color", "#2ecc71")),
     )
 
     file = None
@@ -172,6 +173,19 @@ class Verify(commands.Cog):
         await db.update_guild_section(interaction.guild_id, "verify", {"banner_asset_id": file_id})
         await interaction.followup.send(
             "✅ ตั้งภาพ banner แล้ว ใช้ `/verify-post-panel` เพื่อโพสต์แผงใหม่อีกครั้งให้เห็นผล",
+            ephemeral=True,
+        )
+
+    @app_commands.command(
+        name="verify-set-color",
+        description="ตั้งสี hex ของแผงยืนยันตัวตน (แอดมินเท่านั้น)",
+    )
+    @require_permission()
+    @app_commands.describe(hex_color="สี hex เช่น #2ecc71")
+    async def verify_set_color(self, interaction: discord.Interaction, hex_color: str):
+        await db.update_guild_section(interaction.guild_id, "verify", {"color": hex_color})
+        await interaction.response.send_message(
+            f"✅ ตั้งสีแผงยืนยันตัวตนเป็น `{hex_color}` แล้ว ใช้ `/verify-post-panel` เพื่อโพสต์แผงใหม่ให้เห็นผล",
             ephemeral=True,
         )
 

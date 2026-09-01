@@ -14,7 +14,7 @@ from checks import require_permission
 
 def build_rules_embed(cfg: dict) -> discord.Embed:
     embed = discord.Embed(
-        title="📜 กฎของเซิร์ฟเวอร์",
+        title=cfg.get("title", "📜 กฎของเซิร์ฟเวอร์"),
         description=cfg.get("rules_text", ""),
         color=discord.Color.orange(),
     )
@@ -26,6 +26,11 @@ def build_rules_embed(cfg: dict) -> discord.Embed:
 class RulesEditorModal(discord.ui.Modal, title="📜 แก้ไขกฎเซิร์ฟเวอร์"):
     def __init__(self, current: dict):
         super().__init__()
+        self.title_input = discord.ui.TextInput(
+            label="หัวข้อ",
+            default=current.get("title", "📜 กฎของเซิร์ฟเวอร์"),
+            max_length=256,
+        )
         self.rules_input = discord.ui.TextInput(
             label="ข้อความกฎ",
             style=discord.TextStyle.paragraph,
@@ -39,6 +44,7 @@ class RulesEditorModal(discord.ui.Modal, title="📜 แก้ไขกฎเซ
             required=False,
             max_length=1000,
         )
+        self.add_item(self.title_input)
         self.add_item(self.rules_input)
         self.add_item(self.rank_input)
 
@@ -46,7 +52,11 @@ class RulesEditorModal(discord.ui.Modal, title="📜 แก้ไขกฎเซ
         await db.update_guild_section(
             interaction.guild_id,
             "rules",
-            {"rules_text": self.rules_input.value, "rank_text": self.rank_input.value},
+            {
+                "title": self.title_input.value,
+                "rules_text": self.rules_input.value,
+                "rank_text": self.rank_input.value,
+            },
         )
         cfg = await db.get_guild_config(interaction.guild_id)
         rules_cfg = cfg["rules"]
