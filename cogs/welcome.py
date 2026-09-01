@@ -21,9 +21,22 @@ from checks import require_permission
 from cogs.font import load_font_bytes, parse_hex_color as parse_hex_rgba
 
 
+def normalize_newlines(text: str) -> str:
+    """รักษาการกด Enter ให้เป็นบรรทัดใหม่จริง ทั้งจาก Discord Modal และค่าที่เก็บใน DB."""
+    if not text:
+        return ""
+    # Normalize Windows/Mac line endings to \n.
+    text = text.replace("\\r\\n", "\\n").replace("\\r", "\\n")
+    # รองรับกรณี config เก็บตัวอักษร\\n มาเป็น literal ด้วย
+    text = text.replace("\\\\n", "\\n")
+    return text
+
+
 def render_variables(text: str, member: discord.Member, use_mention: bool = True) -> str:
     if not text:
         return ""
+    # สำคัญ: ห้ามลบหรือแทนที่ \\n    # เพื่อให้ Enter ที่แอดมินกดในช่อง Description คงอยู่ตอนส่งจริง
+    text = normalize_newlines(text)
     user_value = member.mention if use_mention else member.display_name
     return (
         text.replace("{user_name}", member.display_name)
@@ -146,7 +159,8 @@ class WelcomeEditorModal(discord.ui.Modal, title="🎨 Welcome Designer"):
         self.description_input = discord.ui.TextInput(
             label="Description",
             style=discord.TextStyle.paragraph,
-            default=current.get("description", ""),
+            placeholder="พิมพ์ข้อความได้หลายบรรทัด — กด Enter เพื่อขึ้นบรรทัดใหม่",
+            default=normalize_newlines(current.get("description", "")),
             max_length=1000,
         )
         self.color_input = discord.ui.TextInput(
@@ -182,7 +196,8 @@ class WelcomeEditorModal(discord.ui.Modal, title="🎨 Welcome Designer"):
         # ให้แอดมินเลือกเองว่าจะ Apply จริงหรือ Cancel ทิ้ง
         pending_data = {
             "title": self.title_input.value,
-            "description": self.description_input.value,
+            # เก็บ \"Enter\" ที่ผู้ใช้กดไว้จริง ไม่รวมบรรทัดให้เป็นข้อความบรรทัดเดียว
+            "description": normalize_newlines(self.description_input.value),
             "color": self.color_input.value,
             "image_url": self.image_input.value or None,
             "font_key": self.font_input.value.strip() or None,
