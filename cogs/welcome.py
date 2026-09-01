@@ -1,15 +1,8 @@
 """
 cogs/welcome.py — 🎨 Welcome Designer
-แอดมินพิมพ์ /welcome-editor แล้วบอทเด้ง Modal ให้กรอก title/description/hex color/รูป/ฟอนต์
-รองรับตัวแปร {user} {user_name} {server_name} {server_membercount} แทรกในข้อความได้เลย
-
-ถ้าใส่ "ฟอนต์" ไว้ด้วย: บอทจะดาวน์โหลดรูปจาก Main Image URL มาใช้เป็นพื้นหลัง
-วาด avatar วงกลม + ข้อความ Title ทับด้วยฟอนต์ที่เลือก แล้วใช้รูปที่เรนเดอร์นี้แทน image ปกติ
-ถ้าเว้นว่างฟอนต์ไว้ ระบบจะทำงานแบบเดิมทุกอย่าง (ใช้ Main Image URL ตรง ๆ)
 """
 
 import io
-
 import aiohttp
 import discord
 from discord import app_commands
@@ -22,20 +15,15 @@ from cogs.font import load_font_bytes, parse_hex_color as parse_hex_rgba
 
 
 def normalize_newlines(text: str) -> str:
-    """รักษาการกด Enter ให้เป็นบรรทัดใหม่จริง ทั้งจาก Discord Modal และค่าที่เก็บใน DB."""
+    """เก็บ Enter จริงไว้ ไม่แปลง newline ให้หาย"""
     if not text:
         return ""
-    # Normalize Windows/Mac line endings to \n.
-    text = text.replace("\\r\\n", "\\n").replace("\\r", "\\n")
-    # รองรับกรณี config เก็บตัวอักษร\\n มาเป็น literal ด้วย
-    text = text.replace("\\\\n", "\\n")
-    return text
+    return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
 def render_variables(text: str, member: discord.Member, use_mention: bool = True) -> str:
     if not text:
         return ""
-    # สำคัญ: ห้ามลบหรือแทนที่ \\n    # เพื่อให้ Enter ที่แอดมินกดในช่อง Description คงอยู่ตอนส่งจริง
     text = normalize_newlines(text)
     user_value = member.mention if use_mention else member.display_name
     return (
@@ -55,8 +43,6 @@ def parse_hex_color(hex_str: str) -> discord.Color:
 
 
 async def fetch_image_bytes(url: str) -> bytes | None:
-    """โหลดรูปจาก URL มาเป็น bytes เอง (ตามด้วย redirect ได้ ต่างจากการฝัง URL ตรงใน embed
-    ที่ Discord ต้องการไฟล์ตรง ๆ เท่านั้น) คืนค่า None ถ้าโหลดไม่สำเร็จ"""
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
@@ -76,7 +62,6 @@ def render_avatar_text_on_background(
     font_size: int = 48,
     avatar_size: int = 128,
 ) -> bytes:
-    """วาด avatar วงกลม (กึ่งกลาง) + ข้อความ (ด้านล่าง) ทับบนรูปพื้นหลัง คืนค่าเป็น PNG bytes"""
     bg = Image.open(io.BytesIO(background_bytes)).convert("RGBA")
     bg_w, bg_h = bg.size
 
@@ -103,8 +88,6 @@ def render_avatar_text_on_background(
 
 def build_welcome_embed(cfg: dict, member: discord.Member) -> discord.Embed:
     embed = discord.Embed(
-        # Discord ไม่ resolve mention ในช่อง title/footer/author เลยใช้ display_name แทน
-        # กันโชว์เป็นรหัสดิบ <@id> เหมือนระบบเก่า
         title=render_variables(cfg.get("title", ""), member, use_mention=False),
         description=render_variables(cfg.get("description", ""), member, use_mention=True),
         color=parse_hex_color(cfg.get("color", "#a0d2eb")),
@@ -115,11 +98,7 @@ def build_welcome_embed(cfg: dict, member: discord.Member) -> discord.Embed:
     return embed
 
 
-async def build_welcome_message(
-    cfg: dict, member: discord.Member, guild_id: int
-) -> tuple[discord.Embed, discord.File | None]:
-    """สร้าง embed ต้อนรับ — ถ้าตั้งฟอนต์ไว้ด้วย จะพยายามเรนเดอร์ avatar+ข้อความทับพื้นหลังให้
-    ถ้าเรนเดอร์ไม่สำเร็จ (โหลดรูป/ฟอนต์ไม่ได้) จะ fallback ไปใช้ Main Image URL แบบปกติเงียบ ๆ"""
+async def build_welcome_message(cfg: dict, member: discord.Member, guild_id: int):
     embed = build_welcome_embed(cfg, member)
     file = None
 
@@ -143,7 +122,7 @@ async def build_welcome_message(
                     file = discord.File(io.BytesIO(image_bytes), filename="welcome_composite.png")
                     embed.set_image(url="attachment://welcome_composite.png")
                 except Exception:
-                    file = None  # เรนเดอร์พัง — ปล่อยให้ embed ใช้ image_url ปกติต่อไป (ตั้งไว้แล้วด้านบน)
+                    file = None
 
     return embed, file
 
@@ -192,18 +171,19 @@ class WelcomeEditorModal(discord.ui.Modal, title="🎨 Welcome Designer"):
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        # 🖼️ Wallpaper Live Preview — ยังไม่เซฟลง DB ทันที เก็บไว้ใน view ชั่วคราวก่อน
-        # ให้แอดมินเลือกเองว่าจะ Apply จริงหรือ Cancel ทิ้ง
         pending_data = {
             "title": self.title_input.value,
-            # เก็บ \"Enter\" ที่ผู้ใช้กดไว้จริง ไม่รวมบรรทัดให้เป็นข้อความบรรทัดเดียว
             "description": normalize_newlines(self.description_input.value),
             "color": self.color_input.value,
             "image_url": self.image_input.value or None,
             "font_key": self.font_input.value.strip() or None,
         }
-        embed, file = await build_welcome_message(pending_data, interaction.user, interaction.guild_id)
-        view = WallpaperPreviewView(interaction.guild_id, interaction.user.id, pending_data)
+        embed, file = await build_welcome_message(
+            pending_data, interaction.user, interaction.guild_id
+        )
+        view = WallpaperPreviewView(
+            interaction.guild_id, interaction.user.id, pending_data
+        )
         kwargs = {
             "content": "🖼️ นี่คือตัวอย่าง — **ยังไม่ถูกบันทึก** จนกว่าจะกด \"นำไปใช้จริง\"",
             "embed": embed,
@@ -216,8 +196,6 @@ class WelcomeEditorModal(discord.ui.Modal, title="🎨 Welcome Designer"):
 
 
 class WallpaperPreviewView(discord.ui.View):
-    """ปุ่มควบคุมของระบบ Wallpaper Live Preview — พรีวิวซ้ำได้/Apply/คืนค่าเดิม"""
-
     def __init__(self, guild_id: int, editor_id: int, pending_data: dict):
         super().__init__(timeout=300)
         self.guild_id = guild_id
@@ -227,7 +205,8 @@ class WallpaperPreviewView(discord.ui.View):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.editor_id:
             await interaction.response.send_message(
-                "ปุ่มนี้ใช้ได้เฉพาะคนที่เปิดหน้าต่างแก้ไขนี้เท่านั้นครับ", ephemeral=True
+                "ปุ่มนี้ใช้ได้เฉพาะคนที่เปิดหน้าต่างแก้ไขนี้เท่านั้นครับ",
+                ephemeral=True,
             )
             return False
         return True
@@ -235,7 +214,9 @@ class WallpaperPreviewView(discord.ui.View):
     @discord.ui.button(label="พรีวิวตัวอย่าง", emoji="👁️", style=discord.ButtonStyle.secondary)
     async def preview(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        embed, file = await build_welcome_message(self.pending_data, interaction.user, self.guild_id)
+        embed, file = await build_welcome_message(
+            self.pending_data, interaction.user, self.guild_id
+        )
         kwargs = {"content": "👁️ ตัวอย่าง (ยังไม่บันทึก):", "embed": embed, "ephemeral": True}
         if file:
             kwargs["file"] = file
@@ -243,7 +224,9 @@ class WallpaperPreviewView(discord.ui.View):
 
     @discord.ui.button(label="นำไปใช้จริง", emoji="✅", style=discord.ButtonStyle.success)
     async def apply(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await db.update_guild_section(self.guild_id, "welcome", self.pending_data)
+        await db.update_guild_section(
+            self.guild_id, "welcome", self.pending_data
+        )
         for item in self.children:
             item.disabled = True
         await interaction.response.edit_message(
@@ -255,7 +238,9 @@ class WallpaperPreviewView(discord.ui.View):
         for item in self.children:
             item.disabled = True
         await interaction.response.edit_message(
-            content="🔄 ยกเลิกแล้ว ไม่มีการบันทึกการเปลี่ยนแปลงใด ๆ", embed=None, view=self
+            content="🔄 ยกเลิกแล้ว ไม่มีการบันทึกการเปลี่ยนแปลงใด ๆ",
+            embed=None,
+            view=self,
         )
 
 
@@ -264,7 +249,8 @@ class Welcome(commands.Cog):
         self.bot = bot
 
     @app_commands.command(
-        name="welcome-editor", description="เปิดหน้าต่างแก้ไข embed ต้อนรับ (แอดมินเท่านั้น)"
+        name="welcome-editor",
+        description="เปิดหน้าต่างแก้ไข embed ต้อนรับ (แอดมินเท่านั้น)",
     )
     @require_permission()
     async def welcome_editor(self, interaction: discord.Interaction):
@@ -272,7 +258,8 @@ class Welcome(commands.Cog):
         await interaction.response.send_modal(WelcomeEditorModal(cfg["welcome"]))
 
     @app_commands.command(
-        name="welcome-set-channel", description="ตั้งห้องที่จะโพสต์ข้อความต้อนรับ (แอดมินเท่านั้น)"
+        name="welcome-set-channel",
+        description="ตั้งห้องที่จะโพสต์ข้อความต้อนรับ (แอดมินเท่านั้น)",
     )
     @require_permission()
     async def welcome_set_channel(
@@ -291,22 +278,24 @@ class Welcome(commands.Cog):
             return
         if not await db.is_system_enabled(member.guild.id, "welcome"):
             return
+
         cfg = await db.get_guild_config(member.guild.id)
         channel_id = cfg["welcome"].get("channel_id")
         if not channel_id:
             return
+
         channel = member.guild.get_channel(channel_id)
         if channel is None:
             return
 
-        embed, file = await build_welcome_message(cfg["welcome"], member, member.guild.id)
+        embed, file = await build_welcome_message(
+            cfg["welcome"], member, member.guild.id
+        )
         if file:
             await channel.send(embed=embed, file=file)
         else:
             await channel.send(embed=embed)
 
-        # ส่ง mention จริงแยกข้อความ วงเล็บต่อท้าย เพื่อให้แจ้งเตือนสมาชิกใหม่ได้จริง
-        # (เหมือนระบบเก่า) เพราะ title ของ embed โชว์ mention แบบกดได้ไม่ได้
         await channel.send(content=f"({member.mention})")
 
 
