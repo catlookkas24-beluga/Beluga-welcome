@@ -21,6 +21,7 @@ guilds = _db["guild_configs"]
 # - activity_daily: ยอดรายวัน ใช้ทำกราฟและสรุป 7/30 วัน
 activity_totals = _db["activity_totals"]
 activity_daily = _db["activity_daily"]
+tickets = _db["tickets"]  # 🎫 บันทึกตั๋วที่เปิดอยู่/ปิดแล้ว กันเปิดซ้ำและไว้ตรวจสอบย้อนหลัง
 
 # GridFS bucket สำหรับเก็บไฟล์ที่ผู้ใช้อัปโหลด (รูป/ฟอนต์/config) แบบถาวร
 # ไม่หายตอน redeploy บอท (ต่างจากดิสก์ของ Render ที่ล้างทุกครั้งที่ deploy ใหม่)
@@ -51,6 +52,7 @@ DEFAULT_CONFIG = {
         "autorole": True,
         "activity": True,
         "goodbye": True,
+        "ticket": True,
     },
     # 🔑 Custom Command Permissions — { "command-name": [role_id, role_id, ...] }
     # ว่างเปล่า = ยังไม่ตั้งค่าอะไร (แปลว่าต้องมี Manage Server เท่านั้นถึงใช้ได้ ตามค่าเดิม)
@@ -61,6 +63,7 @@ DEFAULT_CONFIG = {
         "description": "ตอนนี้เซิร์ฟเวอร์มี {server_membercount} สมาชิกแล้ว!",
         "color": "#a0d2eb",
         "image_url": None,
+        "image_urls": [],
         "font_key": None,
     },
     "goodbye": {
@@ -69,6 +72,7 @@ DEFAULT_CONFIG = {
         "description": "ขอให้โชคดีนะครับ หวังว่าจะได้เจอกันอีก",
         "color": "#6b7280",
         "image_url": None,
+        "image_urls": [],
         "font_key": None,
     },
     "verify": {
@@ -77,6 +81,8 @@ DEFAULT_CONFIG = {
         "explain_text": "ยืนยันตัวตนเพื่อป้องกันบอทและผู้ใช้ปลอม ช่วยให้เซิร์ฟเวอร์ปลอดภัยขึ้นครับ",
         "banner_asset_id": None,
         "color": "#2ecc71",
+        "confirm_emoji": "✅",
+        "explain_emoji": "❓",
     },
     "rules": {
         "channel_id": None,
@@ -84,6 +90,15 @@ DEFAULT_CONFIG = {
         "title": "📜 กฎของเซิร์ฟเวอร์",
         "rules_text": "1. เคารพกันและกัน\n2. ห้ามสแปม\n3. ห้ามโฆษณาที่ไม่ได้รับอนุญาต",
         "rank_text": "7 วัน = ส่งรูปได้ | 30 วัน = เข้าเสียงได้",
+    },
+    "ticket": {
+        "category_id": None,
+        "support_role_ids": [],
+        "panel_channel_id": None,
+        "title": "🎫 เปิดตั๋วขอความช่วยเหลือ",
+        "description": "กดปุ่มด้านล่างเพื่อเปิดห้องส่วนตัวคุยกับทีมงาน",
+        "color": "#5865f2",
+        "welcome_text": "สวัสดีครับ {user} ทีมงานจะเข้ามาช่วยเหลือเร็ว ๆ นี้ กรุณาอธิบายปัญหาของคุณ",
     },
     "antiraid": {
         "join_threshold": 5,
@@ -379,3 +394,28 @@ async def remove_allowed_role(guild_id: int, command_name: str, role_id: int) ->
 async def get_all_command_permissions(guild_id: int) -> dict:
     cfg = await get_guild_config(guild_id)
     return cfg.get("command_permissions", {})
+
+
+# ---------------- Ticket System ----------------
+# บันทึกตั๋วที่เปิดอยู่ กันคนเปิดซ้ำหลายตั๋วพร้อมกัน และไว้ตรวจสอบย้อนหลังได้
+
+async def create_ticket_record(guild_id: int, channel_id: int, opener_id: int) -> None:
+    await tickets.insert_one(
+        {
+            "_id": channel_id,
+            "guild_id": guild_id,
+            "opener_id": opener_id,
+            "status": "open",
+        }
+    )
+
+
+async def get_open_ticket_channel_id(guild_id: int, opener_id: int) -> int | None:
+    doc = await tickets.find_one(
+        {"guild_id": guild_id, "opener_id": opener_id, "status": "open"}
+    )
+    return doc["_id"] if doc else None
+
+
+async def close_ticket_record(channel_id: int) -> None:
+    await tickets.update_one({"_id": channel_id}, {"$set": {"status": "closed"}})

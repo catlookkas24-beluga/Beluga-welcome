@@ -57,6 +57,7 @@ INITIAL_COGS = [
     "cogs.permissions",
     "cogs.activity",
     "cogs.cmdperms",
+    "cogs.ticket",
     "cogs.force",
 ]
 
