@@ -9,6 +9,7 @@ cogs/welcome.py — 🎨 Welcome Designer
 """
 
 import io
+import random
 
 import aiohttp
 import discord
@@ -106,12 +107,20 @@ async def build_welcome_message(
     cfg: dict, member: discord.Member, guild_id: int
 ) -> tuple[discord.Embed, discord.File | None]:
     """สร้าง embed ต้อนรับ — ถ้าตั้งฟอนต์ไว้ด้วย จะพยายามเรนเดอร์ avatar+ข้อความทับพื้นหลังให้
-    ถ้าเรนเดอร์ไม่สำเร็จ (โหลดรูป/ฟอนต์ไม่ได้) จะ fallback ไปใช้ Main Image URL แบบปกติเงียบ ๆ"""
-    embed = build_welcome_embed(cfg, member)
+    ถ้าเรนเดอร์ไม่สำเร็จ (โหลดรูป/ฟอนต์ไม่ได้) จะ fallback ไปใช้ Main Image URL แบบปกติเงียบ ๆ
+
+    🎲 Random Message System: ถ้ามี image_urls (หลายรูป) ตั้งไว้ จะสุ่มเลือก 1 รูปมาใช้ทุกครั้ง
+    แทนที่ image_url เดี่ยว (ทำงานร่วมกับฟอนต์ composite ได้ปกติ เพราะแค่สุ่มว่าจะใช้รูปไหนเป็นพื้นหลัง)"""
+    render_cfg = dict(cfg)
+    image_urls = cfg.get("image_urls") or []
+    if image_urls:
+        render_cfg["image_url"] = random.choice(image_urls)
+
+    embed = build_welcome_embed(render_cfg, member)
     file = None
 
-    font_key = cfg.get("font_key")
-    image_url = cfg.get("image_url")
+    font_key = render_cfg.get("font_key")
+    image_url = render_cfg.get("image_url")
     if font_key and image_url:
         bg_bytes = await fetch_image_bytes(image_url)
         if bg_bytes:
@@ -122,7 +131,7 @@ async def build_welcome_message(
                     avatar_bytes = await member.display_avatar.replace(size=256).read()
                 except Exception:
                     avatar_bytes = None
-                text = render_variables(cfg.get("title", ""), member, use_mention=False)
+                text = render_variables(render_cfg.get("title", ""), member, use_mention=False)
                 try:
                     image_bytes = render_avatar_text_on_background(
                         bg_bytes, avatar_bytes, font_bytes, text
@@ -269,6 +278,60 @@ class Welcome(commands.Cog):
         )
         await interaction.response.send_message(
             f"✅ ตั้งห้องต้อนรับเป็น {channel.mention} แล้ว", ephemeral=True
+        )
+
+    @app_commands.command(
+        name="welcome-add-image",
+        description="🎲 เพิ่มรูป/GIF เข้าคลังต้อนรับ (มีหลายรูป = สุ่มใช้ทุกครั้งที่มีคนเข้า) (แอดมินเท่านั้น)",
+    )
+    @require_permission()
+    @app_commands.describe(url="ลิงก์รูปหรือ GIF")
+    async def welcome_add_image(self, interaction: discord.Interaction, url: str):
+        cfg = await db.get_guild_config(interaction.guild_id)
+        image_urls = cfg["welcome"].get("image_urls") or []
+        image_urls.append(url)
+        await db.update_guild_section(interaction.guild_id, "welcome", {"image_urls": image_urls})
+        await interaction.response.send_message(
+            f"✅ เพิ่มรูปแล้ว ตอนนี้มีทั้งหมด **{len(image_urls)} รูป** ในคลัง (บอทจะสุ่มเลือก 1 รูปทุกครั้งที่มีคนเข้าเซิร์ฟ)",
+            ephemeral=True,
+        )
+
+    @app_commands.command(
+        name="welcome-list-images", description="ดูรายชื่อรูป/GIF ทั้งหมดในคลังต้อนรับ"
+    )
+    @require_permission()
+    async def welcome_list_images(self, interaction: discord.Interaction):
+        cfg = await db.get_guild_config(interaction.guild_id)
+        image_urls = cfg["welcome"].get("image_urls") or []
+        if not image_urls:
+            await interaction.response.send_message(
+                "ยังไม่มีรูปในคลังเลยครับ ใช้ `/welcome-add-image` เพื่อเริ่มเพิ่ม (ตอนนี้ใช้ Main Image URL "
+                "จาก `/welcome-editor` เดี่ยว ๆ อยู่)",
+                ephemeral=True,
+            )
+            return
+        lines = [f"{i + 1}. {url}" for i, url in enumerate(image_urls)]
+        await interaction.response.send_message(
+            f"📋 มีทั้งหมด {len(image_urls)} รูปในคลัง:\n" + "\n".join(lines), ephemeral=True
+        )
+
+    @app_commands.command(
+        name="welcome-remove-image", description="ลบรูปออกจากคลังต้อนรับตามลำดับที่ (ดูจาก /welcome-list-images)"
+    )
+    @require_permission()
+    @app_commands.describe(index="ลำดับที่ของรูป (เริ่มจาก 1)")
+    async def welcome_remove_image(self, interaction: discord.Interaction, index: int):
+        cfg = await db.get_guild_config(interaction.guild_id)
+        image_urls = cfg["welcome"].get("image_urls") or []
+        if index < 1 or index > len(image_urls):
+            await interaction.response.send_message(
+                f"⚠️ ลำดับไม่ถูกต้อง (มีทั้งหมด {len(image_urls)} รูป)", ephemeral=True
+            )
+            return
+        removed = image_urls.pop(index - 1)
+        await db.update_guild_section(interaction.guild_id, "welcome", {"image_urls": image_urls})
+        await interaction.response.send_message(
+            f"🗑️ ลบรูปที่ {index} แล้ว (`{removed[:60]}...`)", ephemeral=True
         )
 
     @commands.Cog.listener()

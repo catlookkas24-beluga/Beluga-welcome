@@ -15,16 +15,19 @@ from checks import require_permission
 from cogs.welcome import parse_hex_color
 
 
-async def build_verify_panel_message(guild_id: int) -> tuple[discord.Embed, discord.File | None]:
-    """สร้าง embed แผงยืนยันตัวตน — แนบ banner ให้อัตโนมัติถ้าตั้งไว้แล้ว (ใช้ร่วมกันทั้ง
-    /verify-post-panel และ /verify-setup-gate กันลืมแนบ banner ไม่ตรงกัน)"""
+async def build_verify_panel_message(
+    guild_id: int,
+) -> tuple[discord.Embed, "discord.File | None", "VerifyPanelView"]:
+    """สร้าง embed + view แผงยืนยันตัวตน — แนบ banner/สี/อีโมจิ ตามที่ตั้งไว้ในเซิร์ฟนี้
+    (ใช้ร่วมกันทั้ง /verify-post-panel และ /verify-setup-gate กันลืมตั้งค่าไม่ตรงกัน)"""
     cfg = await db.get_guild_config(guild_id)
-    banner_asset_id = cfg["verify"].get("banner_asset_id")
+    verify_cfg = cfg["verify"]
+    banner_asset_id = verify_cfg.get("banner_asset_id")
 
     embed = discord.Embed(
         title="ยืนยันตัวตน",
         description="กดปุ่มด้านล่างเพื่อยืนยันตัวตนและเข้าใช้งานเซิร์ฟเวอร์แบบเต็มรูปแบบ",
-        color=parse_hex_color(cfg["verify"].get("color", "#2ecc71")),
+        color=parse_hex_color(verify_cfg.get("color", "#2ecc71")),
     )
 
     file = None
@@ -36,7 +39,12 @@ async def build_verify_panel_message(guild_id: int) -> tuple[discord.Embed, disc
         except Exception:
             file = None  # ไฟล์อาจถูกลบไปแล้ว — โพสต์ต่อโดยไม่มี banner แทนที่จะพัง
 
-    return embed, file
+    view = VerifyPanelView(
+        confirm_emoji=verify_cfg.get("confirm_emoji", "✅"),
+        explain_emoji=verify_cfg.get("explain_emoji", "❓"),
+    )
+
+    return embed, file, view
 
 
 class ExplainModal(discord.ui.Modal, title="❓ ทำไมต้องยืนยันตัวตน"):
@@ -60,14 +68,17 @@ class ExplainModal(discord.ui.Modal, title="❓ ทำไมต้องยื�
 
 
 class VerifyPanelView(discord.ui.View):
-    """View ถาวร (persistent) ที่ติดอยู่กับข้อความยืนยันตัวตนในห้อง"""
+    """View ถาวร (persistent) ที่ติดอยู่กับข้อความยืนยันตัวตนในห้อง
+    รับอีโมจิ custom ได้ — ค่าที่ตั้งจะติดไปกับข้อความที่ส่งออกไปแล้ว (ไม่กระทบตอน re-attach หลัง restart
+    เพราะ Discord จับคู่ปุ่มด้วย custom_id ไม่ใช่หน้าตาปุ่ม)"""
 
-    def __init__(self):
+    def __init__(self, confirm_emoji: str = "✅", explain_emoji: str = "❓"):
         super().__init__(timeout=None)
+        self.confirm.emoji = confirm_emoji
+        self.explain.emoji = explain_emoji
 
     @discord.ui.button(
         label="ยืนยันตัวตน",
-        emoji="✅",
         style=discord.ButtonStyle.success,
         custom_id="beluga:verify:confirm",
     )
@@ -97,7 +108,6 @@ class VerifyPanelView(discord.ui.View):
 
     @discord.ui.button(
         label="ทำไมต้องยืนยัน",
-        emoji="❓",
         style=discord.ButtonStyle.secondary,
         custom_id="beluga:verify:explain",
     )
@@ -190,6 +200,36 @@ class Verify(commands.Cog):
         )
 
     @app_commands.command(
+        name="verify-set-emoji",
+        description="ตั้งอีโมจิของปุ่มยืนยันตัวตน/ปุ่มคำถาม (แอดมินเท่านั้น)",
+    )
+    @require_permission()
+    @app_commands.describe(
+        confirm_emoji="อีโมจิปุ่ม 'ยืนยันตัวตน' (เว้นว่าง = ไม่เปลี่ยน)",
+        explain_emoji="อีโมจิปุ่ม 'ทำไมต้องยืนยัน' (เว้นว่าง = ไม่เปลี่ยน)",
+    )
+    async def verify_set_emoji(
+        self,
+        interaction: discord.Interaction,
+        confirm_emoji: str = None,
+        explain_emoji: str = None,
+    ):
+        updates = {}
+        if confirm_emoji is not None:
+            updates["confirm_emoji"] = confirm_emoji
+        if explain_emoji is not None:
+            updates["explain_emoji"] = explain_emoji
+        if not updates:
+            await interaction.response.send_message(
+                "⚠️ ใส่อีโมจิอย่างน้อย 1 ช่อง", ephemeral=True
+            )
+            return
+        await db.update_guild_section(interaction.guild_id, "verify", updates)
+        await interaction.response.send_message(
+            "✅ ตั้งอีโมจิแล้ว ใช้ `/verify-post-panel` เพื่อโพสต์แผงใหม่ให้เห็นผล", ephemeral=True
+        )
+
+    @app_commands.command(
         name="verify-setup-gate",
         description="🚪 สร้างห้องยืนยันตัวตน+กฎอัตโนมัติ และล็อกไม่ให้คนที่ยังไม่มียศเห็นห้องอื่นเลย (แอดมินเท่านั้น)",
     )
@@ -247,11 +287,11 @@ class Verify(commands.Cog):
             "verify",
             {"role_id": verified_role.id, "channel_id": verify_channel.id},
         )
-        embed, file = await build_verify_panel_message(interaction.guild_id)
+        embed, file, view = await build_verify_panel_message(interaction.guild_id)
         if file:
-            await verify_channel.send(embed=embed, view=VerifyPanelView(), file=file)
+            await verify_channel.send(embed=embed, view=view, file=file)
         else:
-            await verify_channel.send(embed=embed, view=VerifyPanelView())
+            await verify_channel.send(embed=embed, view=view)
 
         warning = ""
         if failed:
@@ -273,11 +313,11 @@ class Verify(commands.Cog):
     )
     @require_permission()
     async def verify_post_panel(self, interaction: discord.Interaction):
-        embed, file = await build_verify_panel_message(interaction.guild_id)
+        embed, file, view = await build_verify_panel_message(interaction.guild_id)
         if file:
-            await interaction.channel.send(embed=embed, view=VerifyPanelView(), file=file)
+            await interaction.channel.send(embed=embed, view=view, file=file)
         else:
-            await interaction.channel.send(embed=embed, view=VerifyPanelView())
+            await interaction.channel.send(embed=embed, view=view)
 
         await db.update_guild_section(
             interaction.guild_id, "verify", {"channel_id": interaction.channel_id}

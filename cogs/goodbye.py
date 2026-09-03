@@ -10,6 +10,7 @@ render_avatar_text_on_background) เพื่อไม่ให้โค้ด�
 """
 
 import io
+import random
 
 import discord
 from discord import app_commands
@@ -42,12 +43,19 @@ async def build_goodbye_message(
     cfg: dict, member: discord.Member, guild_id: int
 ) -> tuple[discord.Embed, discord.File | None]:
     """สร้าง embed อำลา — ถ้าตั้งฟอนต์ไว้ด้วย จะเรนเดอร์ avatar+ข้อความทับพื้นหลังให้
-    เหมือน welcome ทุกอย่าง ล้มเหลวก็ fallback ไปใช้ Main Image URL แบบปกติเงียบ ๆ"""
-    embed = build_goodbye_embed(cfg, member)
+    เหมือน welcome ทุกอย่าง ล้มเหลวก็ fallback ไปใช้ Main Image URL แบบปกติเงียบ ๆ
+
+    🎲 Random Message System: ถ้ามี image_urls (หลายรูป) ตั้งไว้ จะสุ่มเลือก 1 รูปมาใช้ทุกครั้ง"""
+    render_cfg = dict(cfg)
+    image_urls = cfg.get("image_urls") or []
+    if image_urls:
+        render_cfg["image_url"] = random.choice(image_urls)
+
+    embed = build_goodbye_embed(render_cfg, member)
     file = None
 
-    font_key = cfg.get("font_key")
-    image_url = cfg.get("image_url")
+    font_key = render_cfg.get("font_key")
+    image_url = render_cfg.get("image_url")
     if font_key and image_url:
         bg_bytes = await fetch_image_bytes(image_url)
         if bg_bytes:
@@ -58,7 +66,7 @@ async def build_goodbye_message(
                     avatar_bytes = await member.display_avatar.replace(size=256).read()
                 except Exception:
                     avatar_bytes = None
-                text = render_variables(cfg.get("title", ""), member, use_mention=False)
+                text = render_variables(render_cfg.get("title", ""), member, use_mention=False)
                 try:
                     image_bytes = render_avatar_text_on_background(
                         bg_bytes, avatar_bytes, font_bytes, text
@@ -76,6 +84,7 @@ class GoodbyeEditorModal(discord.ui.Modal, title="👋 Goodbye Message"):
         super().__init__()
         self.title_input = discord.ui.TextInput(
             label="Title",
+            style=discord.TextStyle.paragraph,
             default=current.get("title", ""),
             max_length=256,
         )
@@ -200,6 +209,57 @@ class Goodbye(commands.Cog):
         )
         await interaction.response.send_message(
             f"✅ ตั้งห้องอำลาเป็น {channel.mention} แล้ว", ephemeral=True
+        )
+
+    @app_commands.command(
+        name="goodbye-add-image",
+        description="🎲 เพิ่มรูป/GIF เข้าคลังอำลา (มีหลายรูป = สุ่มใช้ทุกครั้งที่มีคนออก) (แอดมินเท่านั้น)",
+    )
+    @require_permission()
+    @app_commands.describe(url="ลิงก์รูปหรือ GIF")
+    async def goodbye_add_image(self, interaction: discord.Interaction, url: str):
+        cfg = await db.get_guild_config(interaction.guild_id)
+        image_urls = cfg["goodbye"].get("image_urls") or []
+        image_urls.append(url)
+        await db.update_guild_section(interaction.guild_id, "goodbye", {"image_urls": image_urls})
+        await interaction.response.send_message(
+            f"✅ เพิ่มรูปแล้ว ตอนนี้มีทั้งหมด **{len(image_urls)} รูป** ในคลัง", ephemeral=True
+        )
+
+    @app_commands.command(
+        name="goodbye-list-images", description="ดูรายชื่อรูป/GIF ทั้งหมดในคลังอำลา"
+    )
+    @require_permission()
+    async def goodbye_list_images(self, interaction: discord.Interaction):
+        cfg = await db.get_guild_config(interaction.guild_id)
+        image_urls = cfg["goodbye"].get("image_urls") or []
+        if not image_urls:
+            await interaction.response.send_message(
+                "ยังไม่มีรูปในคลังเลยครับ ใช้ `/goodbye-add-image` เพื่อเริ่มเพิ่ม", ephemeral=True
+            )
+            return
+        lines = [f"{i + 1}. {url}" for i, url in enumerate(image_urls)]
+        await interaction.response.send_message(
+            f"📋 มีทั้งหมด {len(image_urls)} รูปในคลัง:\n" + "\n".join(lines), ephemeral=True
+        )
+
+    @app_commands.command(
+        name="goodbye-remove-image", description="ลบรูปออกจากคลังอำลาตามลำดับที่ (ดูจาก /goodbye-list-images)"
+    )
+    @require_permission()
+    @app_commands.describe(index="ลำดับที่ของรูป (เริ่มจาก 1)")
+    async def goodbye_remove_image(self, interaction: discord.Interaction, index: int):
+        cfg = await db.get_guild_config(interaction.guild_id)
+        image_urls = cfg["goodbye"].get("image_urls") or []
+        if index < 1 or index > len(image_urls):
+            await interaction.response.send_message(
+                f"⚠️ ลำดับไม่ถูกต้อง (มีทั้งหมด {len(image_urls)} รูป)", ephemeral=True
+            )
+            return
+        removed = image_urls.pop(index - 1)
+        await db.update_guild_section(interaction.guild_id, "goodbye", {"image_urls": image_urls})
+        await interaction.response.send_message(
+            f"🗑️ ลบรูปที่ {index} แล้ว (`{removed[:60]}...`)", ephemeral=True
         )
 
     @commands.Cog.listener()
