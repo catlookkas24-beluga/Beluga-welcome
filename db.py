@@ -22,6 +22,7 @@ guilds = _db["guild_configs"]
 activity_totals = _db["activity_totals"]
 activity_daily = _db["activity_daily"]
 tickets = _db["tickets"]  # 🎫 บันทึกตั๋วที่เปิดอยู่/ปิดแล้ว กันเปิดซ้ำและไว้ตรวจสอบย้อนหลัง
+welcome_presets = _db["welcome_presets"]  # 🎨 บันทึกดีไซน์ welcome ไว้หลายชุด สลับใช้ได้
 
 # GridFS bucket สำหรับเก็บไฟล์ที่ผู้ใช้อัปโหลด (รูป/ฟอนต์/config) แบบถาวร
 # ไม่หายตอน redeploy บอท (ต่างจากดิสก์ของ Render ที่ล้างทุกครั้งที่ deploy ใหม่)
@@ -65,6 +66,26 @@ DEFAULT_CONFIG = {
         "image_url": None,
         "image_urls": [],
         "font_key": None,
+        # 👤 Author / Footer field
+        "author_name": None,
+        "author_icon_url": None,
+        "footer_text": None,
+        "footer_icon_url": None,
+        # 📋 Embed fields (สูงสุด 3 ช่อง) — [{"name":.., "value":.., "inline": bool}]
+        "fields": [],
+        # 📨 Multi-Embed — embed ที่สองต่อท้าย (เว้นว่าง title = ไม่ส่ง)
+        "extra_embed_title": None,
+        "extra_embed_description": None,
+        # 🖼️ ตำแหน่ง/ขนาด avatar และข้อความบน composite image + กรอบ
+        "avatar_position": "center",
+        "avatar_size": 128,
+        "text_position": "bottom",
+        "border_color": None,
+        "border_width": 0,
+        # 🎲 พฤติกรรมการส่ง
+        "delay_seconds": 0,
+        "dm_enabled": False,
+        "send_count": 0,
     },
     "goodbye": {
         "channel_id": None,
@@ -419,3 +440,37 @@ async def get_open_ticket_channel_id(guild_id: int, opener_id: int) -> int | Non
 
 async def close_ticket_record(channel_id: int) -> None:
     await tickets.update_one({"_id": channel_id}, {"$set": {"status": "closed"}})
+
+
+# ---------------- Welcome Preset / Theme System ----------------
+# บันทึกดีไซน์ welcome ไว้หลายชุด (ชื่อ + snapshot ของ config ทั้งหมด) สลับใช้ได้
+
+def _preset_id(guild_id: int, name: str) -> str:
+    return f"{guild_id}:{name}"
+
+
+async def save_welcome_preset(guild_id: int, name: str, config_snapshot: dict) -> None:
+    await welcome_presets.update_one(
+        {"_id": _preset_id(guild_id, name)},
+        {"$set": {"guild_id": guild_id, "name": name, "config": config_snapshot}},
+        upsert=True,
+    )
+
+
+async def load_welcome_preset(guild_id: int, name: str) -> dict | None:
+    doc = await welcome_presets.find_one({"_id": _preset_id(guild_id, name)})
+    return doc["config"] if doc else None
+
+
+async def list_welcome_presets(guild_id: int) -> list:
+    cursor = welcome_presets.find({"guild_id": guild_id})
+    return [doc["name"] async for doc in cursor]
+
+
+async def delete_welcome_preset(guild_id: int, name: str) -> bool:
+    result = await welcome_presets.delete_one({"_id": _preset_id(guild_id, name)})
+    return result.deleted_count > 0
+
+
+async def increment_welcome_send_count(guild_id: int) -> None:
+    await guilds.update_one({"_id": guild_id}, {"$inc": {"welcome.send_count": 1}}, upsert=True)
