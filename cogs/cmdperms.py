@@ -194,23 +194,28 @@ class CommandPermissions(commands.Cog):
     @app_commands.checks.has_permissions(manage_guild=True)
     async def cmdperm_list_all(self, interaction: discord.Interaction):
         all_perms = await db.get_all_command_permissions(interaction.guild_id)
-        if not all_perms:
+        active_perms = {cmd: roles for cmd, roles in all_perms.items() if roles}
+
+        if not active_perms:
             await interaction.response.send_message(
-                "ยังไม่มีการตั้งค่าสิทธิ์คำสั่งพิเศษเลยครับ (ทุกคำสั่งต้องมี Manage Server)",
+                "🔑 ยังไม่มีการตั้งค่าสิทธิ์คำสั่งพิเศษเลยครับ (ทุกคำสั่งต้องมี Manage Server)",
                 ephemeral=True,
             )
             return
-        embed = discord.Embed(title="🔑 สิทธิ์คำสั่งที่ตั้งไว้", color=discord.Color.blurple())
-        for cmd_name, role_ids in all_perms.items():
-            if not role_ids:
-                continue
+
+        total_roles = len({rid for roles in active_perms.values() for rid in roles})
+        embed = discord.Embed(
+            title="🔑 สิทธิ์คำสั่งที่ตั้งไว้",
+            description=f"**{len(active_perms)} คำสั่ง** ปลดล็อกให้รวม **{total_roles} ยศ**",
+            color=discord.Color.blurple(),
+        )
+        if interaction.guild.icon:
+            embed.set_thumbnail(url=interaction.guild.icon.url)
+
+        for cmd_name, role_ids in active_perms.items():
             mentions = ", ".join(f"<@&{rid}>" for rid in role_ids)
-            embed.add_field(name=f"/{cmd_name}", value=mentions, inline=False)
-        if not embed.fields:
-            await interaction.response.send_message(
-                "ยังไม่มีการตั้งค่าสิทธิ์คำสั่งพิเศษเลยครับ", ephemeral=True
-            )
-            return
+            embed.add_field(name=f"⚙️ /{cmd_name}", value=mentions, inline=False)
+        embed.set_footer(text="ใช้ /cmdperm-revoke เพื่อเอาสิทธิ์ออก")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 

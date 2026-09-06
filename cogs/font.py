@@ -102,28 +102,36 @@ class Font(commands.Cog):
 
     @app_commands.command(name="font-list", description="ดูรายชื่อฟอนต์ทั้งหมดที่มีให้ใช้")
     async def font_list(self, interaction: discord.Interaction):
-        embed = discord.Embed(title="🔤 ฟอนต์ที่มีให้ใช้", color=discord.Color.gold())
+        custom_fonts = await db.list_assets(interaction.guild_id, asset_type="font")
+
+        embed = discord.Embed(
+            title="🔤 คลังฟอนต์",
+            description=f"ระบบ **{len(BUILTIN_FONTS)}** แบบ + อัปโหลดเอง **{len(custom_fonts)}** แบบ",
+            color=discord.Color.gold(),
+        )
+        if interaction.guild.icon:
+            embed.set_thumbnail(url=interaction.guild.icon.url)
+
         builtin_lines = []
         for key, info in BUILTIN_FONTS.items():
-            builtin_lines.append(f"• `{key}` — {info['label']}")
+            thai_tag = "🇹🇭" if info.get("thai") else "🔤"
+            builtin_lines.append(f"{thai_tag} `{key}` — {info['label']}")
         embed.add_field(
-            name="ฟอนต์ระบบ (5 แบบ)", value="\n".join(builtin_lines), inline=False
+            name="✨ ฟอนต์ระบบ", value="\n".join(builtin_lines), inline=False
         )
 
-        custom_fonts = await db.list_assets(interaction.guild_id, asset_type="font")
         if custom_fonts:
-            custom_lines = [
-                f"• `{a['file_id']}` — {a['label']}" for a in custom_fonts
-            ]
+            custom_lines = [f"🎨 `{a['file_id']}` — {a['label']}" for a in custom_fonts]
             embed.add_field(
-                name="ฟอนต์ที่อัปโหลดเอง", value="\n".join(custom_lines), inline=False
+                name="📤 ฟอนต์ที่อัปโหลดเอง", value="\n".join(custom_lines), inline=False
             )
         else:
             embed.add_field(
-                name="ฟอนต์ที่อัปโหลดเอง",
-                value="ยังไม่มี — ใช้ `/asset-upload` เพื่ออัปโหลดไฟล์ .ttf/.otf",
+                name="📤 ฟอนต์ที่อัปโหลดเอง",
+                value="_ยังไม่มี — ใช้ `/asset-upload` เพื่ออัปโหลดไฟล์ .ttf/.otf_",
                 inline=False,
             )
+        embed.set_footer(text="🇹🇭 = รองรับภาษาไทย  •  ใช้ /font-preview เพื่อดูตัวอย่างจริง")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(name="font-preview", description="ดูตัวอย่างข้อความด้วยฟอนต์ที่เลือก")

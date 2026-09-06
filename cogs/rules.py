@@ -12,11 +12,14 @@ import db
 from checks import require_permission
 
 
+from cogs.welcome import parse_hex_color
+
+
 def build_rules_embed(cfg: dict) -> discord.Embed:
     embed = discord.Embed(
         title=cfg.get("title", "📜 กฎของเซิร์ฟเวอร์"),
         description=cfg.get("rules_text", ""),
-        color=discord.Color.orange(),
+        color=parse_hex_color(cfg.get("color", "#e67e22")),
     )
     if cfg.get("rank_text"):
         embed.add_field(name="🏅 เงื่อนไขการเลื่อนยศ", value=cfg["rank_text"], inline=False)

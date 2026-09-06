@@ -61,20 +61,29 @@ class Assets(commands.Cog):
         assets = await db.list_assets(interaction.guild_id)
         if not assets:
             await interaction.response.send_message(
-                "ยังไม่มีไฟล์ที่อัปโหลดไว้เลยครับ ใช้ `/asset-upload` เพื่อเริ่มอัปโหลด", ephemeral=True
+                "📁 ยังไม่มีไฟล์ที่อัปโหลดไว้เลยครับ ใช้ `/asset-upload` เพื่อเริ่มอัปโหลด", ephemeral=True
             )
             return
 
-        embed = discord.Embed(title="📁 ไฟล์ที่อัปโหลดไว้", color=discord.Color.blurple())
+        total_kb = sum(a["length"] for a in assets) / 1024
+        embed = discord.Embed(
+            title="📁 คลังไฟล์",
+            description=f"ทั้งหมด **{len(assets)} ไฟล์** • รวม **{total_kb:.1f} KB**",
+            color=discord.Color.blurple(),
+        )
+        if interaction.guild.icon:
+            embed.set_thumbnail(url=interaction.guild.icon.url)
+
         for asset_type, label in TYPE_LABELS.items():
             items = [a for a in assets if a["asset_type"] == asset_type]
             if not items:
                 continue
             value = "\n".join(
-                f"• **{a['label']}** ({a['length'] / 1024:.1f} KB) — ID: `{a['file_id']}`"
+                f"▫️ **{a['label']}** `{a['length'] / 1024:.1f} KB` — ID: `{a['file_id']}`"
                 for a in items
             )
-            embed.add_field(name=label, value=value, inline=False)
+            embed.add_field(name=f"{label} ({len(items)})", value=value, inline=False)
+        embed.set_footer(text="ใช้ /asset-delete พร้อม ID เพื่อลบไฟล์")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(name="asset-delete", description="ลบไฟล์ที่อัปโหลดไว้ (แอดมินเท่านั้น)")

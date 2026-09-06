@@ -24,6 +24,17 @@ def format_hours(seconds: int) -> str:
     return f"{hours:.1f} ชม."
 
 
+def render_rank_bar(rank: int, total: int, length: int = 10) -> str:
+    """แปลงอันดับเป็นแถบภาพ ██████░░░░ — อันดับ 1 = เต็มแถบ, อันดับสุดท้าย = ว่างเกือบหมด"""
+    if total <= 1:
+        fraction = 1.0
+    else:
+        fraction = 1 - (rank - 1) / (total - 1)
+    filled = round(fraction * length)
+    filled = max(0, min(length, filled))
+    return "🟩" * filled + "⬜" * (length - filled)
+
+
 def render_activity_chart(daily_series: list, width: int = 700, height: int = 320) -> bytes:
     """วาดกราฟเส้นคู่ (ข้อความ vs เวลาเสียง) ย้อนหลังตามจำนวนวันใน daily_series
     สเกลแต่ละเส้นตาม max ของตัวเอง เพื่อให้เห็นแนวโน้มเทียบกันได้แม้หน่วยต่างกัน"""
@@ -148,8 +159,13 @@ class Activity(commands.Cog):
         embed.set_thumbnail(url=target.display_avatar.url)
         embed.add_field(
             name="🏆 อันดับในเซิร์ฟ",
-            value=f"ข้อความ: **#{msg_rank}** / {msg_total_users}\nเวลาเสียง: **#{voice_rank}** / {msg_total_users}",
-            inline=True,
+            value=(
+                f"ข้อความ: **#{msg_rank}** / {msg_total_users}\n"
+                f"{render_rank_bar(msg_rank, msg_total_users)}\n"
+                f"เวลาเสียง: **#{voice_rank}** / {msg_total_users}\n"
+                f"{render_rank_bar(voice_rank, msg_total_users)}"
+            ),
+            inline=False,
         )
         embed.add_field(
             name="💬 ข้อความ",
