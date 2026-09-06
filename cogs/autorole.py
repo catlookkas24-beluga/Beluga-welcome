@@ -4,6 +4,7 @@ cogs/autorole.py — 🏅 Auto Role Timeline Config
 เปิด auto_grant ให้บอทแจกอัตโนมัติ หรือปิดไว้ให้สมาชิกกดรับเองที่ห้อง claim
 """
 
+import asyncio
 from datetime import datetime, timezone
 
 import discord
@@ -34,6 +35,7 @@ async def sync_guild_roles(guild: discord.Guild) -> int:
             try:
                 await member.add_roles(role, reason="Auto Role Timeline")
                 granted += 1
+                await asyncio.sleep(0.3)  # กัน rate limit 429 ตอนแจกยศหลายคนรวดเดียว
             except discord.Forbidden:
                 pass
     return granted

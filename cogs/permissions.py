@@ -1,9 +1,12 @@
 """
 cogs/permissions.py — 🔑 Permission Manager
 ตั้งสิทธิ์ยศในห้องต่าง ๆ ผ่านคำสั่งเดียว ไม่ต้องเข้าไปตั้งทีละห้องใน Discord Server Settings
-- /permission-set: ปรับทั้งเซิร์ฟ หรือเฉพาะหมวดหมู่เดียว
+- /permission-set: ปรับทั้งเซิร์ฟ หรือเฉพาะหมวดหมู่เดียว (1 สิทธิ์ต่อครั้ง)
+- /permission-set-multi: เลือกได้หลายสิทธิ์พร้อมกันผ่าน dropdown ในคำสั่งเดียว
 - /permission-set-bulk: เลือกได้หลายหมวดหมู่พร้อมกันผ่าน dropdown
 """
+
+import asyncio
 
 import discord
 from discord import app_commands
@@ -90,6 +93,7 @@ class BulkCategorySelectView(discord.ui.View):
                     reason=f"ตั้งผ่าน /permission-set-bulk โดย {interaction.user}",
                 )
                 updated += 1
+                await asyncio.sleep(0.3)  # กัน rate limit 429 ตอนตั้งหลายห้องรวดเดียว
             except (discord.Forbidden, discord.HTTPException):
                 failed += 1
 
@@ -97,6 +101,77 @@ class BulkCategorySelectView(discord.ui.View):
             f"**{len(self.selected_categories)} หมวดหมู่** ที่เลือก" if self.selected_categories else "**ทั้งเซิร์ฟ**"
         )
         result = f"✅ ตั้งสิทธิ์ให้ {self.role.mention} ใน {scope_text} สำเร็จ **{updated} ห้อง**"
+        if failed:
+            result += f"\n⚠️ ล้มเหลว {failed} ห้อง — เช็คสิทธิ์ **Manage Channels** ของบอท"
+
+        for item in self.children:
+            item.disabled = True
+        await interaction.edit_original_response(content=result, view=self)
+
+
+class MultiPermissionSelectView(discord.ui.View):
+    """เลือกได้หลายสิทธิ์พร้อมกัน (ดูห้อง, ส่งข้อความ, แนบไฟล์ ฯลฯ) แล้วตั้งค่าเดียวกันให้ทุกสิทธิ์
+    ที่เลือกทีเดียว — นี่คือ "1 คำสั่งได้หลายสิทธิ์" ตามที่ต้องการ"""
+
+    def __init__(self, role: discord.Role, bool_value, category, editor_id: int):
+        super().__init__(timeout=120)
+        self.role = role
+        self.bool_value = bool_value
+        self.category = category
+        self.editor_id = editor_id
+        self.selected_permissions: list = []
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.editor_id:
+            await interaction.response.send_message(
+                "ใช้ได้เฉพาะคนที่สั่งคำสั่งนี้เท่านั้นครับ", ephemeral=True
+            )
+            return False
+        return True
+
+    @discord.ui.select(
+        placeholder="เลือกสิทธิ์ (เลือกได้หลายอัน)",
+        min_values=1,
+        max_values=len(PERMISSION_MAP),
+        options=[discord.SelectOption(label=k, value=v) for k, v in PERMISSION_MAP.items()],
+    )
+    async def select_permissions(self, interaction: discord.Interaction, select: discord.ui.Select):
+        self.selected_permissions = select.values
+        labels = ", ".join(select.values)
+        await interaction.response.edit_message(
+            content=f"เลือกสิทธิ์ไว้: `{labels}`\nกด **ยืนยันตั้งค่า** เมื่อพร้อม", view=self
+        )
+
+    @discord.ui.button(label="ยืนยันตั้งค่า", emoji="✅", style=discord.ButtonStyle.success)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self.selected_permissions:
+            await interaction.response.send_message("⚠️ ยังไม่ได้เลือกสิทธิ์เลย", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
+        guild = interaction.guild
+        channels = self.category.channels if self.category else guild.channels
+
+        updated, failed = 0, 0
+        for ch in channels:
+            try:
+                overwrite = ch.overwrites_for(self.role)
+                for perm_key in self.selected_permissions:
+                    setattr(overwrite, perm_key, self.bool_value)
+                await ch.set_permissions(
+                    self.role,
+                    overwrite=overwrite,
+                    reason=f"ตั้งผ่าน /permission-set-multi โดย {interaction.user}",
+                )
+                updated += 1
+                await asyncio.sleep(0.3)  # กัน rate limit 429 ตอนตั้งหลายห้องรวดเดียว
+            except (discord.Forbidden, discord.HTTPException):
+                failed += 1
+
+        scope_text = f"หมวดหมู่ **{self.category.name}**" if self.category else "**ทั้งเซิร์ฟ**"
+        result = (
+            f"✅ ตั้ง **{len(self.selected_permissions)} สิทธิ์** ให้ {self.role.mention} "
+            f"ใน {scope_text} สำเร็จ **{updated} ห้อง**"
+        )
         if failed:
             result += f"\n⚠️ ล้มเหลว {failed} ห้อง — เช็คสิทธิ์ **Manage Channels** ของบอท"
 
@@ -150,6 +225,7 @@ class Permissions(commands.Cog):
                     role, overwrite=overwrite, reason=f"ตั้งผ่าน /permission-set โดย {interaction.user}"
                 )
                 updated += 1
+                await asyncio.sleep(0.3)  # กัน rate limit 429 ตอนตั้งหลายห้องรวดเดียว
             except (discord.Forbidden, discord.HTTPException):
                 failed += 1
 
@@ -189,6 +265,40 @@ class Permissions(commands.Cog):
         await interaction.response.send_message(
             "เลือกหมวดหมู่ที่จะปรับจากเมนูด้านล่าง (เลือกได้หลายอัน) แล้วกด **ยืนยันตั้งค่า**\n"
             "ไม่เลือกเลยแล้วกดยืนยัน = ปรับทั้งเซิร์ฟ",
+            view=view,
+            ephemeral=True,
+        )
+
+    @app_commands.command(
+        name="permission-set-multi",
+        description="ตั้งหลายสิทธิ์พร้อมกันให้ยศในคำสั่งเดียว เช่น ดูห้อง+ส่งข้อความ+แนบไฟล์ (แอดมินเท่านั้น)",
+    )
+    @require_permission()
+    @app_commands.describe(
+        role="ยศที่จะตั้งสิทธิ์",
+        value="อนุญาต / ปฏิเสธ / รีเซ็ตกลับเป็นค่าเริ่มต้น (ใช้ค่าเดียวกันกับทุกสิทธิ์ที่เลือก)",
+        category="ถ้าระบุ จะปรับเฉพาะห้องในหมวดหมู่นี้เท่านั้น (ไม่ระบุ = ปรับทั้งเซิร์ฟ)",
+    )
+    @app_commands.choices(
+        value=[
+            app_commands.Choice(name="✅ อนุญาต", value="allow"),
+            app_commands.Choice(name="❌ ปฏิเสธ", value="deny"),
+            app_commands.Choice(name="🔄 รีเซ็ต (ค่าเริ่มต้น)", value="reset"),
+        ],
+    )
+    async def permission_set_multi(
+        self,
+        interaction: discord.Interaction,
+        role: discord.Role,
+        value: app_commands.Choice[str],
+        category: discord.CategoryChannel = None,
+    ):
+        bool_value = VALUE_MAP[value.value]
+        view = MultiPermissionSelectView(role, bool_value, category, interaction.user.id)
+        scope_text = f"หมวดหมู่ **{category.name}**" if category else "**ทั้งเซิร์ฟ**"
+        await interaction.response.send_message(
+            f"เลือกสิทธิ์ที่จะตั้งจากเมนูด้านล่าง (เลือกได้หลายอัน) — จะปรับใน {scope_text}\n"
+            f"เลือกครบแล้วกด **ยืนยันตั้งค่า**",
             view=view,
             ephemeral=True,
         )

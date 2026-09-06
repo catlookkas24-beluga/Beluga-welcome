@@ -4,6 +4,7 @@ cogs/verify.py — 🔐 Interactive Verify Setup
 แอดมินตั้งค่ายศที่จะแจกผ่าน Dropdown (discord.ui.Select) และแก้ข้อความอธิบายผ่าน Modal
 """
 
+import asyncio
 import io
 
 import discord
@@ -267,6 +268,7 @@ class Verify(commands.Cog):
                 await ch.set_permissions(everyone, view_channel=False, reason="Verify Gate Setup")
                 await ch.set_permissions(verified_role, view_channel=True, reason="Verify Gate Setup")
                 locked += 1
+                await asyncio.sleep(0.3)  # กัน rate limit 429 ตอนล็อกหลายห้องรวดเดียว (ต้นเหตุ 429 ที่เคยเจอ)
             except (discord.Forbidden, discord.HTTPException):
                 failed += 1
 
