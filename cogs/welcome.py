@@ -183,19 +183,24 @@ async def build_welcome_message(
             loaded_font = await load_font_bytes(guild_id, font_key)
             if loaded_font:
                 font_bytes, _ = loaded_font
-                try:
-                    avatar_bytes = await member.display_avatar.replace(size=256).read()
-                except Exception:
-                    avatar_bytes = None
+                avatar_bytes = None
+                if render_cfg.get("avatar_enabled", True):
+                    try:
+                        avatar_bytes = await member.display_avatar.replace(size=256).read()
+                    except Exception:
+                        avatar_bytes = None
                 text = render_variables(render_cfg.get("title", ""), member, use_mention=False)
                 border_color_hex = render_cfg.get("border_color")
                 border_rgba = parse_hex_rgba(border_color_hex) if border_color_hex else None
+                text_color_hex = render_cfg.get("text_color", "#ffffff")
+                text_rgba = parse_hex_rgba(text_color_hex) if text_color_hex else (255, 255, 255, 255)
                 try:
                     image_bytes = render_avatar_text_on_background(
                         bg_bytes,
                         avatar_bytes,
                         font_bytes,
                         text,
+                        text_color=text_rgba,
                         avatar_size=render_cfg.get("avatar_size", 128),
                         avatar_position=render_cfg.get("avatar_position", "center"),
                         text_position=render_cfg.get("text_position", "bottom"),
