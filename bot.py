@@ -46,6 +46,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 INITIAL_COGS = [
     "cogs.welcome",
+    "cogs.welcome_wizard",  # 🧙 เพิ่มใหม่ — step-by-step wizard คู่กับ welcome-editor เดิม
     "cogs.goodbye",
     "cogs.verify",
     "cogs.rules",

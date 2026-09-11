@@ -79,7 +79,9 @@ DEFAULT_CONFIG = {
         # 🖼️ ตำแหน่ง/ขนาด avatar และข้อความบน composite image + กรอบ
         "avatar_position": "center",
         "avatar_size": 128,
+        "avatar_enabled": True,
         "text_position": "bottom",
+        "text_color": "#ffffff",
         "border_color": None,
         "border_width": 0,
         # 🎲 พฤติกรรมการส่ง
