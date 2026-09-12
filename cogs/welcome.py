@@ -11,6 +11,7 @@ cogs/welcome.py — 🎨 Welcome Designer
 import asyncio
 import io
 import random
+import sys
 
 import aiohttp
 import discord
@@ -647,6 +648,28 @@ class Welcome(commands.Cog):
             return
         cfg = await db.get_guild_config(member.guild.id)
         welcome_cfg = cfg["welcome"]
+
+        # 🩺🧪 TEMPORARY DEBUG — ลบบล็อกนี้ทิ้งทันทีหลังตรวจ CASE A/B เสร็จ (ตาม request วันที่ 2026-09-12)
+        # พิมพ์ค่าที่ get_guild_config() คืนมาจริง ๆ ตอน join เพื่อดูว่าเป็นค่าใหม่จาก Dashboard
+        # หรือค่าเก่า — ไม่ log token/password/credential ใด ๆ
+        print(
+            "[WELCOME-DEBUG-TEMP] "
+            f"guild_id={member.guild.id} "
+            f"channel_id={welcome_cfg.get('channel_id')!r} "
+            f"title={welcome_cfg.get('title')!r} "
+            f"description={welcome_cfg.get('description')!r} "
+            f"color={welcome_cfg.get('color')!r} "
+            f"image_url={welcome_cfg.get('image_url')!r} "
+            f"font_key={welcome_cfg.get('font_key')!r} "
+            f"delay_seconds={welcome_cfg.get('delay_seconds')!r} "
+            f"dm_enabled={welcome_cfg.get('dm_enabled')!r} "
+            f"avatar_enabled={welcome_cfg.get('avatar_enabled')!r} "
+            f"text_color={welcome_cfg.get('text_color')!r}",
+            file=sys.stderr,
+            flush=True,
+        )
+        # 🩺🧪 END TEMPORARY DEBUG
+
         channel_id = welcome_cfg.get("channel_id")
 
         delay_seconds = welcome_cfg.get("delay_seconds", 0)
