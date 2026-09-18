@@ -80,18 +80,37 @@ class GuildMusicState:
 
 
 async def extract_track(query: str, requester: discord.Member) -> Track | None:
-    """ยิง query (ชื่อเพลง/ลิงก์) ไปหา yt-dlp — บล็อคจึงต้องรันใน executor แยก thread"""
-    loop = asyncio.get_event_loop()
+    """ค้นหาเพลงผ่าน yt-dlp พร้อมจัดการ DownloadError อย่างปลอดภัย"""
+    loop = asyncio.get_running_loop()
 
     def _extract():
-        info = ytdl.extract_info(query, download=False)
-        if "entries" in info:  # ผลลัพธ์จากการค้นหา (ytsearch:) จะมาเป็น list
-            if not info["entries"]:
+        try:
+            info = ytdl.extract_info(query, download=False)
+
+            if not info:
                 return None
-            info = info["entries"][0]
-        return info
+
+            if "entries" in info:
+                entries = info.get("entries") or []
+                if not entries:
+                    return None
+                info = entries[0]
+
+            if not info or not info.get("url"):
+                return None
+
+            return info
+
+        except yt_dlp.utils.DownloadError as error:
+            log.warning("[music] yt-dlp ดึงเพลงไม่สำเร็จ: %s", error)
+            return None
+
+        except Exception:
+            log.exception("[music] เกิดข้อผิดพลาดขณะดึงข้อมูลเพลง")
+            return None
 
     info = await loop.run_in_executor(None, _extract)
+
     if info is None:
         return None
 
