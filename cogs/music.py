@@ -1,61 +1,29 @@
 """
-cogs/music.py — 🎵 Music Player
-เล่นเพลงจาก YouTube หรือลิงก์ตรง ๆ ในห้องเสียง มี queue, skip, pause/resume, volume
-ใช้ yt-dlp ดึงลิงก์เสียงจริง แล้วสตรีมผ่าน FFmpeg เข้า voice channel
+cogs/music.py — 🎵 Music Player (คลังเพลงจากลิงก์ไฟล์เสียงตรง)
 
-ต้องติดตั้ง ffmpeg บนเครื่อง/เซิร์ฟที่รันบอทด้วย (ไม่ใช่ pip package)
-บน Render: เพิ่ม apt package "ffmpeg" ผ่าน Dockerfile หรือ buildpack ที่รองรับ apt
+แทนที่จะดึงเสียงจาก YouTube (ซึ่งเจอปัญหาบล็อกบอทเรื่อยมา) ระบบนี้เล่นจาก
+"ลิงก์ไฟล์เสียงตรง" (mp3/wav ที่อัปโหลดไว้ที่อื่นแล้ว เช่น แปลงจากแอปในเครื่องแล้วอัปโหลด
+ขึ้น Discord/Google Drive/ที่อื่น) เก็บชื่อ+ลิงก์ไว้ใน MongoDB ผ่าน db.py
+
+ขั้นตอนใช้งาน:
+  1. แปลงเพลงเป็น mp3 ด้วยแอปที่คุณมีอยู่แล้ว
+  2. อัปโหลดไฟล์ไปที่ไหนก็ได้ที่ให้ "ลิงก์ตรง" ถึงไฟล์ (เช่น อัปโหลดใส่ channel ใน Discord
+     เอง แล้วคลิกขวาที่ไฟล์ > Copy Link)
+  3. ใช้ /addsong ชื่อเพลง ลิงก์ เพื่อเก็บเข้าคลัง
+  4. /play ชื่อเพลง เพื่อเล่น (หรือ /play ลิงก์ ถ้าอยากเล่นแบบไม่บันทึกไว้ก่อนก็ได้)
+
+ต้องมี ffmpeg บนเครื่อง/เซิร์ฟที่รันบอทด้วย (ไม่ใช่ pip package)
 """
 
-import asyncio
 import logging
-import os
 
 import discord
 from discord import app_commands
 from discord.ext import commands
-import yt_dlp
+
+import db
 
 log = logging.getLogger("beluga")
-
-# ต้องมี cookies.txt (รูปแบบ Netscape) เพื่อผ่านการเช็ค "Sign in to confirm you're not a bot" ของ YouTube
-# หาไฟล์ตามลำดับนี้: Render Secret File ก่อน แล้วค่อย fallback มาที่ root โปรเจกต์
-_COOKIE_CANDIDATES = ["/etc/secrets/cookies.txt", "cookies.txt"]
-COOKIES_FILE = next((p for p in _COOKIE_CANDIDATES if os.path.isfile(p)), None)
-
-if COOKIES_FILE:
-    log.info(f"[music] พบไฟล์ cookies ที่ {COOKIES_FILE} — จะใช้ยืนยันตัวตนกับ YouTube")
-else:
-    log.warning("[music] ไม่พบไฟล์ cookies.txt — ถ้า YouTube ขึ้น 'Sign in to confirm you're not a bot' ต้องเพิ่มไฟล์นี้")
-
-YTDL_BASE_OPTIONS = {
-    "format": "bestaudio[ext=m4a]/bestaudio/best",
-    "noplaylist": True,
-    "quiet": True,
-    "no_warnings": True,
-    "default_search": "ytsearch1",
-    "source_address": "0.0.0.0",
-    "skip_download": True,
-}
-
-# YouTube เปลี่ยนระบบ player/client บ่อย จึงเตรียม fallback หลายแบบ
-# และสร้าง YoutubeDL ใหม่ต่อการลอง เพื่อไม่ให้ค่าจากรอบก่อนค้างอยู่
-YOUTUBE_CLIENT_FALLBACKS = [
-    ["default", "web_embedded"],
-    ["web_embedded"],
-    ["android_vr"],
-]
-
-
-def _make_ytdl(player_clients: list[str], use_cookies: bool = True):
-    options = dict(YTDL_BASE_OPTIONS)
-    options["extractor_args"] = {
-        "youtube": {"player_client": player_clients}
-    }
-    if use_cookies and COOKIES_FILE:
-        options["cookiefile"] = COOKIES_FILE
-    return yt_dlp.YoutubeDL(options)
-
 
 FFMPEG_OPTIONS = {
     "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
@@ -63,91 +31,22 @@ FFMPEG_OPTIONS = {
 }
 
 
+class QueueItem:
+    __slots__ = ("title", "url", "requester")
 
-class Track:
-    """เพลงเดี่ยว ๆ ในคิว — เก็บแค่ข้อมูลที่ต้องโชว์ + stream url ที่ยังใช้ได้ตอนนั้น"""
-
-    def __init__(self, title: str, webpage_url: str, stream_url: str, duration: int, requester: discord.Member):
+    def __init__(self, title: str, url: str, requester: discord.Member):
         self.title = title
-        self.webpage_url = webpage_url
-        self.stream_url = stream_url
-        self.duration = duration
+        self.url = url
         self.requester = requester
-
-    def duration_str(self) -> str:
-        if not self.duration:
-            return "ไม่ทราบความยาว"
-        minutes, seconds = divmod(int(self.duration), 60)
-        return f"{minutes}:{seconds:02d}"
 
 
 class GuildMusicState:
-    """สถานะเพลงต่อ 1 เซิร์ฟ — คิว, ตัวที่เล่นอยู่, volume"""
-
-    def __init__(self, guild_id: int):
-        self.guild_id = guild_id
-        self.queue: list[Track] = []
-        self.current: Track | None = None
+    def __init__(self):
+        self.queue: list[QueueItem] = []
+        self.current: QueueItem | None = None
         self.volume: float = 0.5
         self.voice_client: discord.VoiceClient | None = None
-
-
-async def extract_track(query: str, requester: discord.Member) -> Track | None:
-    """ดึงเพลงด้วย yt-dlp พร้อม fallback สำหรับ YouTube/YouTube Music"""
-    loop = asyncio.get_running_loop()
-    original_query = query.strip()
-
-    # แปลงลิงก์ YouTube Music ให้เป็นลิงก์ YouTube ปกติ
-    # เพราะตัว extractor รองรับวิดีโอเดียวกันผ่าน watch?v= ได้เสถียรกว่า
-    if "music.youtube.com/watch" in query:
-        query = query.replace("music.youtube.com/watch", "www.youtube.com/watch")
-
-    def _extract():
-        last_error = None
-        for clients in YOUTUBE_CLIENT_FALLBACKS:
-            for use_cookies in ([True, False] if COOKIES_FILE else [False]):
-                try:
-                    log.info(
-                        "[music] ลองดึงเพลง query=%s clients=%s cookies=%s",
-                        original_query, clients, use_cookies
-                    )
-                    extractor = _make_ytdl(clients, use_cookies=use_cookies)
-                    info = extractor.extract_info(query, download=False)
-
-                    if not info:
-                        continue
-                    if "entries" in info:
-                        entries = [entry for entry in (info.get("entries") or []) if entry]
-                        if not entries:
-                            continue
-                        info = entries[0]
-                    if info.get("url"):
-                        return info
-                except yt_dlp.utils.DownloadError as error:
-                    last_error = error
-                    log.warning(
-                        "[music] ดึงไม่สำเร็จ clients=%s cookies=%s: %s",
-                        clients, use_cookies, error
-                    )
-                except Exception as error:
-                    last_error = error
-                    log.exception("[music] ข้อผิดพลาดขณะดึงเพลง: %s", error)
-
-        if last_error:
-            log.error("[music] ลองทุก fallback แล้วไม่สำเร็จ: %s", last_error)
-        return None
-
-    info = await loop.run_in_executor(None, _extract)
-    if info is None:
-        return None
-
-    return Track(
-        title=info.get("title", "ไม่ทราบชื่อเพลง"),
-        webpage_url=info.get("webpage_url", original_query),
-        stream_url=info["url"],
-        duration=info.get("duration", 0),
-        requester=requester,
-    )
+        self.text_channel: discord.abc.Messageable | None = None
 
 
 class Music(commands.Cog):
@@ -157,18 +56,18 @@ class Music(commands.Cog):
 
     def get_state(self, guild_id: int) -> GuildMusicState:
         if guild_id not in self.states:
-            self.states[guild_id] = GuildMusicState(guild_id)
+            self.states[guild_id] = GuildMusicState()
         return self.states[guild_id]
 
     # ---------- ตัวเล่นเพลงหลัก ----------
 
     def _play_next(self, guild_id: int):
         """เรียกจาก callback ของ FFmpegPCMAudio ตอนเพลงจบ (รันอยู่ใน thread อื่น จึงต้อง schedule กลับ event loop)"""
+        import asyncio
         state = self.states.get(guild_id)
         if state is None:
             return
-        coro = self._start_next_track(guild_id)
-        asyncio.run_coroutine_threadsafe(coro, self.bot.loop)
+        asyncio.run_coroutine_threadsafe(self._start_next_track(guild_id), self.bot.loop)
 
     async def _start_next_track(self, guild_id: int):
         state = self.get_state(guild_id)
@@ -177,24 +76,25 @@ class Music(commands.Cog):
             state.current = None
             return
 
-        track = state.queue.pop(0)
-        state.current = track
+        item = state.queue.pop(0)
+        state.current = item
 
         if state.voice_client is None or not state.voice_client.is_connected():
             return
 
-        source = discord.FFmpegPCMAudio(track.stream_url, **FFMPEG_OPTIONS)
+        source = discord.FFmpegPCMAudio(item.url, **FFMPEG_OPTIONS)
         source = discord.PCMVolumeTransformer(source, volume=state.volume)
 
         def after_playing(error):
             if error:
-                log.error(f"เล่นเพลงพลาด (guild {guild_id}): {error}")
+                log.error(f"[music] เล่นเพลงพลาด (guild {guild_id}): {error}")
             self._play_next(guild_id)
 
         state.voice_client.play(source, after=after_playing)
+        if state.text_channel is not None:
+            await state.text_channel.send(f"▶️ กำลังเล่น: **{item.title}**")
 
     async def _ensure_voice(self, interaction: discord.Interaction) -> discord.VoiceClient | None:
-        """เข้าห้องเสียงที่ผู้ใช้อยู่ ถ้ายังไม่เข้า — คืน None ถ้าผู้ใช้ไม่ได้อยู่ในห้องเสียงเลย"""
         member = interaction.user
         if member.voice is None or member.voice.channel is None:
             await interaction.response.send_message(
@@ -210,12 +110,45 @@ class Music(commands.Cog):
         elif state.voice_client.channel != channel:
             await state.voice_client.move_to(channel)
 
+        state.text_channel = interaction.channel
         return state.voice_client
 
-    # ---------- Slash commands ----------
+    # ---------- Slash commands: คลังเพลง ----------
 
-    @app_commands.command(name="play", description="เล่นเพลงจาก YouTube/ลิงก์ (ถ้ามีเล่นอยู่แล้วจะเข้าคิวต่อ)")
-    @app_commands.describe(query="ชื่อเพลงที่จะค้นหา หรือลิงก์ YouTube/เพลงตรง ๆ")
+    @app_commands.command(name="addsong", description="เพิ่มเพลงเข้าคลัง (ต้องเป็นลิงก์ไฟล์เสียงตรง เช่น .mp3)")
+    @app_commands.describe(name="ชื่อเพลงที่จะใช้เรียก", url="ลิงก์ไฟล์เสียงตรง (mp3/wav)")
+    async def addsong(self, interaction: discord.Interaction, name: str, url: str):
+        if not url.startswith(("http://", "https://")):
+            await interaction.response.send_message("⛔ ลิงก์ต้องขึ้นต้นด้วย http:// หรือ https:// ครับ", ephemeral=True)
+            return
+        await db.add_song(interaction.guild_id, name, url, interaction.user.id)
+        await interaction.response.send_message(f"✅ เพิ่ม **{name}** เข้าคลังเพลงแล้วครับ")
+
+    @app_commands.command(name="removesong", description="ลบเพลงออกจากคลัง")
+    @app_commands.describe(name="ชื่อเพลงที่จะลบ")
+    async def removesong(self, interaction: discord.Interaction, name: str):
+        removed = await db.remove_song(interaction.guild_id, name)
+        if removed:
+            await interaction.response.send_message(f"🗑️ ลบ **{name}** ออกจากคลังแล้วครับ")
+        else:
+            await interaction.response.send_message("⛔ ไม่เจอเพลงชื่อนี้ในคลังครับ", ephemeral=True)
+
+    @app_commands.command(name="songlist", description="ดูรายชื่อเพลงทั้งหมดในคลัง")
+    async def songlist(self, interaction: discord.Interaction):
+        songs = await db.list_songs(interaction.guild_id)
+        if not songs:
+            await interaction.response.send_message("คลังเพลงยังว่างอยู่ครับ ลองเพิ่มด้วย `/addsong` ก่อน")
+            return
+        lines = [f"• {s['name']}" for s in songs[:30]]
+        if len(songs) > 30:
+            lines.append(f"...และอีก {len(songs) - 30} เพลง")
+        embed = discord.Embed(title="🎵 คลังเพลง", description="\n".join(lines), color=discord.Color.blurple())
+        await interaction.response.send_message(embed=embed)
+
+    # ---------- Slash commands: เล่นเพลง ----------
+
+    @app_commands.command(name="play", description="เล่นเพลงจากคลัง (ใส่ชื่อ) หรือลิงก์ไฟล์เสียงตรง")
+    @app_commands.describe(query="ชื่อเพลงในคลัง หรือลิงก์ไฟล์เสียงตรง")
     async def play(self, interaction: discord.Interaction, query: str):
         if interaction.guild is None:
             return
@@ -225,20 +158,24 @@ class Music(commands.Cog):
 
         await interaction.response.defer()
 
-        track = await extract_track(query, interaction.user)
-        if track is None:
-            await interaction.followup.send("⛔ หาเพลงนี้ไม่เจอครับ ลองคำอื่นหรือลิงก์อื่นดูนะ")
-            return
+        if query.startswith(("http://", "https://")):
+            title, url = query, query
+        else:
+            song = await db.get_song(interaction.guild_id, query)
+            if song is None:
+                await interaction.followup.send(
+                    "⛔ ไม่เจอเพลงนี้ในคลังครับ ลองเช็คชื่อด้วย `/songlist` หรือเพิ่มก่อนด้วย `/addsong`"
+                )
+                return
+            title, url = song["name"], song["url"]
 
         state = self.get_state(interaction.guild_id)
-        state.queue.append(track)
+        state.queue.append(QueueItem(title, url, interaction.user))
 
         if voice_client.is_playing() or voice_client.is_paused():
-            await interaction.followup.send(
-                f"➕ เข้าคิวแล้ว: **{track.title}** ({track.duration_str()}) — อันดับที่ {len(state.queue)}"
-            )
+            await interaction.followup.send(f"➕ เข้าคิวแล้ว: **{title}** — อันดับที่ {len(state.queue)}")
         else:
-            await interaction.followup.send(f"▶️ กำลังเล่น: **{track.title}** ({track.duration_str()})")
+            await interaction.followup.send(f"▶️ กำลังเล่น: **{title}**")
             await self._start_next_track(interaction.guild_id)
 
     @app_commands.command(name="skip", description="ข้ามเพลงที่กำลังเล่นอยู่ ไปเพลงต่อไปในคิว")
@@ -247,7 +184,7 @@ class Music(commands.Cog):
         if state.voice_client is None or not (state.voice_client.is_playing() or state.voice_client.is_paused()):
             await interaction.response.send_message("⛔ ไม่มีเพลงกำลังเล่นอยู่ครับ", ephemeral=True)
             return
-        state.voice_client.stop()  # การ stop() จะไป trigger after_playing ให้เล่นเพลงต่อไปเอง
+        state.voice_client.stop()
         await interaction.response.send_message("⏭️ ข้ามเพลงแล้วครับ")
 
     @app_commands.command(name="pause", description="พักเพลงที่กำลังเล่นไว้ชั่วคราว")
@@ -281,13 +218,12 @@ class Music(commands.Cog):
     @app_commands.command(name="queue", description="ดูคิวเพลงที่รออยู่")
     async def show_queue(self, interaction: discord.Interaction):
         state = self.get_state(interaction.guild_id)
-
         embed = discord.Embed(title="🎵 คิวเพลง", color=discord.Color.blurple())
 
         if state.current:
             embed.add_field(
                 name="กำลังเล่น",
-                value=f"**{state.current.title}** ({state.current.duration_str()}) — ขอโดย {state.current.requester.mention}",
+                value=f"**{state.current.title}** — ขอโดย {state.current.requester.mention}",
                 inline=False,
             )
         else:
@@ -295,8 +231,8 @@ class Music(commands.Cog):
 
         if state.queue:
             lines = [
-                f"{i+1}. **{t.title}** ({t.duration_str()}) — ขอโดย {t.requester.mention}"
-                for i, t in enumerate(state.queue[:10])
+                f"{i+1}. **{item.title}** — ขอโดย {item.requester.mention}"
+                for i, item in enumerate(state.queue[:10])
             ]
             if len(state.queue) > 10:
                 lines.append(f"...และอีก {len(state.queue) - 10} เพลง")
@@ -312,10 +248,7 @@ class Music(commands.Cog):
         if state.current is None:
             await interaction.response.send_message("⛔ ไม่มีเพลงเล่นอยู่ครับ", ephemeral=True)
             return
-        await interaction.response.send_message(
-            f"🎶 กำลังเล่น: **{state.current.title}** ({state.current.duration_str()}) "
-            f"— ขอโดย {state.current.requester.mention}\n{state.current.webpage_url}"
-        )
+        await interaction.response.send_message(f"🎶 กำลังเล่น: **{state.current.title}**")
 
     @app_commands.command(name="volume", description="ปรับระดับเสียง (0-100)")
     @app_commands.describe(level="ระดับเสียง 0-100")
