@@ -35,9 +35,10 @@ YTDL_OPTIONS = {
     "no_warnings": True,
     "default_search": "ytsearch",
     "source_address": "0.0.0.0",
-    # บังคับใช้ client android/ios แทน web — เลี่ยงปัญหา YouTube ที่ตอนนี้ต้องมี
+    # บังคับใช้ client android/ios/tv แทน web — เลี่ยงปัญหา YouTube ที่ตอนนี้ต้องมี
     # JavaScript runtime (Deno) ถึงจะถอดรหัสฝั่ง web ได้ ซึ่งเซิร์ฟเวอร์ทั่วไปไม่มีติดตั้งไว้
-    "extractor_args": {"youtube": {"player_client": ["android", "ios"]}},
+    # ใส่หลาย client ไว้เผื่อบางคลิปไม่มี format เสียงให้เลือกใน client เดียว
+    "extractor_args": {"youtube": {"player_client": ["android", "ios", "tv", "web"]}},
 }
 if COOKIES_FILE:
     YTDL_OPTIONS["cookiefile"] = COOKIES_FILE
