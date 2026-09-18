@@ -80,6 +80,7 @@ activity_totals = _db["activity_totals"]
 activity_daily = _db["activity_daily"]
 tickets = _db["tickets"]  # 🎫 บันทึกตั๋วที่เปิดอยู่/ปิดแล้ว กันเปิดซ้ำและไว้ตรวจสอบย้อนหลัง
 welcome_presets = _db["welcome_presets"]  # 🎨 บันทึกดีไซน์ welcome ไว้หลายชุด สลับใช้ได้
+music_library = _db["music_library"]  # 🎵 คลังเพลง — ชื่อเพลง + ลิงก์ไฟล์เสียงตรง (ไม่ผ่าน YouTube)
 
 # GridFS bucket สำหรับเก็บไฟล์ที่ผู้ใช้อัปโหลด (รูป/ฟอนต์/config) แบบถาวร
 # ไม่หายตอน redeploy บอท (ต่างจากดิสก์ของ Render ที่ล้างทุกครั้งที่ deploy ใหม่)
@@ -539,3 +540,41 @@ async def delete_welcome_preset(guild_id: int, name: str) -> bool:
 
 async def increment_welcome_send_count(guild_id: int) -> None:
     await guilds.update_one({"_id": guild_id}, {"$inc": {"welcome.send_count": 1}}, upsert=True)
+
+
+# ---------------- Music Library ----------------
+# คลังเพลงต่อเซิร์ฟ — เก็บแค่ "ชื่อเพลง" + "ลิงก์ไฟล์เสียงตรง" (mp3/wav ที่โฮสต์ไว้ที่อื่น)
+# ไม่ผ่าน YouTube เลย จึงไม่มีปัญหาเรื่องการดึงเสียงที่เคยเจอ
+
+def _song_id(guild_id: int, name: str) -> str:
+    return f"{guild_id}:{name.lower()}"
+
+
+async def add_song(guild_id: int, name: str, url: str, added_by: int) -> None:
+    await music_library.update_one(
+        {"_id": _song_id(guild_id, name)},
+        {"$set": {"guild_id": guild_id, "name": name, "url": url, "added_by": added_by}},
+        upsert=True,
+    )
+
+
+async def remove_song(guild_id: int, name: str) -> bool:
+    result = await music_library.delete_one({"_id": _song_id(guild_id, name)})
+    return result.deleted_count > 0
+
+
+async def get_song(guild_id: int, name: str) -> dict | None:
+    """หาเพลงแบบตรงชื่อก่อน ถ้าไม่เจอลองหาแบบ contains (ไม่สนตัวพิมพ์เล็ก-ใหญ่)"""
+    doc = await music_library.find_one({"_id": _song_id(guild_id, name)})
+    if doc:
+        return doc
+    doc = await music_library.find_one(
+        {"guild_id": guild_id, "name": {"$regex": name, "$options": "i"}}
+    )
+    return doc
+
+
+async def list_songs(guild_id: int) -> list[dict]:
+    cursor = music_library.find({"guild_id": guild_id}).sort("name", 1)
+    return [doc async for doc in cursor]
+
