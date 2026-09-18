@@ -28,27 +28,40 @@ if COOKIES_FILE:
 else:
     log.warning("[music] ไม่พบไฟล์ cookies.txt — ถ้า YouTube ขึ้น 'Sign in to confirm you're not a bot' ต้องเพิ่มไฟล์นี้")
 
-YTDL_OPTIONS = {
-    "format": "bestaudio/best",
+YTDL_BASE_OPTIONS = {
+    "format": "bestaudio[ext=m4a]/bestaudio/best",
     "noplaylist": True,
     "quiet": True,
     "no_warnings": True,
-    "default_search": "ytsearch",
+    "default_search": "ytsearch1",
     "source_address": "0.0.0.0",
-    # บังคับใช้ client android/ios/tv แทน web — เลี่ยงปัญหา YouTube ที่ตอนนี้ต้องมี
-    # JavaScript runtime (Deno) ถึงจะถอดรหัสฝั่ง web ได้ ซึ่งเซิร์ฟเวอร์ทั่วไปไม่มีติดตั้งไว้
-    # ใส่หลาย client ไว้เผื่อบางคลิปไม่มี format เสียงให้เลือกใน client เดียว
-    "extractor_args": {"youtube": {"player_client": ["android", "ios", "tv", "web"]}},
+    "skip_download": True,
 }
-if COOKIES_FILE:
-    YTDL_OPTIONS["cookiefile"] = COOKIES_FILE
+
+# YouTube เปลี่ยนระบบ player/client บ่อย จึงเตรียม fallback หลายแบบ
+# และสร้าง YoutubeDL ใหม่ต่อการลอง เพื่อไม่ให้ค่าจากรอบก่อนค้างอยู่
+YOUTUBE_CLIENT_FALLBACKS = [
+    ["default", "web_embedded"],
+    ["web_embedded"],
+    ["android_vr"],
+]
+
+
+def _make_ytdl(player_clients: list[str], use_cookies: bool = True):
+    options = dict(YTDL_BASE_OPTIONS)
+    options["extractor_args"] = {
+        "youtube": {"player_client": player_clients}
+    }
+    if use_cookies and COOKIES_FILE:
+        options["cookiefile"] = COOKIES_FILE
+    return yt_dlp.YoutubeDL(options)
+
 
 FFMPEG_OPTIONS = {
     "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
     "options": "-vn",
 }
 
-ytdl = yt_dlp.YoutubeDL(YTDL_OPTIONS)
 
 
 class Track:
@@ -80,43 +93,57 @@ class GuildMusicState:
 
 
 async def extract_track(query: str, requester: discord.Member) -> Track | None:
-    """ค้นหาเพลงผ่าน yt-dlp พร้อมจัดการ DownloadError อย่างปลอดภัย"""
+    """ดึงเพลงด้วย yt-dlp พร้อม fallback สำหรับ YouTube/YouTube Music"""
     loop = asyncio.get_running_loop()
+    original_query = query.strip()
+
+    # แปลงลิงก์ YouTube Music ให้เป็นลิงก์ YouTube ปกติ
+    # เพราะตัว extractor รองรับวิดีโอเดียวกันผ่าน watch?v= ได้เสถียรกว่า
+    if "music.youtube.com/watch" in query:
+        query = query.replace("music.youtube.com/watch", "www.youtube.com/watch")
 
     def _extract():
-        try:
-            info = ytdl.extract_info(query, download=False)
+        last_error = None
+        for clients in YOUTUBE_CLIENT_FALLBACKS:
+            for use_cookies in ([True, False] if COOKIES_FILE else [False]):
+                try:
+                    log.info(
+                        "[music] ลองดึงเพลง query=%s clients=%s cookies=%s",
+                        original_query, clients, use_cookies
+                    )
+                    extractor = _make_ytdl(clients, use_cookies=use_cookies)
+                    info = extractor.extract_info(query, download=False)
 
-            if not info:
-                return None
+                    if not info:
+                        continue
+                    if "entries" in info:
+                        entries = [entry for entry in (info.get("entries") or []) if entry]
+                        if not entries:
+                            continue
+                        info = entries[0]
+                    if info.get("url"):
+                        return info
+                except yt_dlp.utils.DownloadError as error:
+                    last_error = error
+                    log.warning(
+                        "[music] ดึงไม่สำเร็จ clients=%s cookies=%s: %s",
+                        clients, use_cookies, error
+                    )
+                except Exception as error:
+                    last_error = error
+                    log.exception("[music] ข้อผิดพลาดขณะดึงเพลง: %s", error)
 
-            if "entries" in info:
-                entries = info.get("entries") or []
-                if not entries:
-                    return None
-                info = entries[0]
-
-            if not info or not info.get("url"):
-                return None
-
-            return info
-
-        except yt_dlp.utils.DownloadError as error:
-            log.warning("[music] yt-dlp ดึงเพลงไม่สำเร็จ: %s", error)
-            return None
-
-        except Exception:
-            log.exception("[music] เกิดข้อผิดพลาดขณะดึงข้อมูลเพลง")
-            return None
+        if last_error:
+            log.error("[music] ลองทุก fallback แล้วไม่สำเร็จ: %s", last_error)
+        return None
 
     info = await loop.run_in_executor(None, _extract)
-
     if info is None:
         return None
 
     return Track(
         title=info.get("title", "ไม่ทราบชื่อเพลง"),
-        webpage_url=info.get("webpage_url", query),
+        webpage_url=info.get("webpage_url", original_query),
         stream_url=info["url"],
         duration=info.get("duration", 0),
         requester=requester,
