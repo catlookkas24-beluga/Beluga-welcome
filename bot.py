@@ -41,12 +41,14 @@ async def start_web_server():
 intents = discord.Intents.default()
 intents.members = True          # จำเป็นสำหรับ welcome / autorole / antiraid
 intents.message_content = True  # จำเป็นถ้าจะใช้ prefix command เสริมในอนาคต
+intents.voice_states = True     # จำเป็นสำหรับระบบเล่นเพลง (music)
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 INITIAL_COGS = [
     "cogs.welcome",
     "cogs.welcome_wizard",  # 🧙 เพิ่มใหม่ — step-by-step wizard คู่กับ welcome-editor เดิม
+    "cogs.welcome_image",   # 🖼️ Welcome Image Composite — มีโค้ดอยู่แล้วแต่ไม่เคยถูกโหลด แก้ไว้ให้ด้วย
     "cogs.goodbye",
     "cogs.verify",
     "cogs.rules",
@@ -61,6 +63,7 @@ INITIAL_COGS = [
     "cogs.ticket",
     "cogs.theme",
     "cogs.force",
+    "cogs.music",  # 🎵 ระบบเล่นเพลง (YouTube/ลิงก์ + queue)
 ]
 
 
