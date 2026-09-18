@@ -62,6 +62,14 @@ class Music(commands.Cog):
                 "[music] ยังไม่ได้ตั้งค่า LAVALINK_HOST/LAVALINK_PORT/LAVALINK_PASSWORD "
                 "— คำสั่งเพลงจะใช้งานไม่ได้จนกว่าจะตั้งค่า"
             )
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        # เชื่อมต่อ Lavalink ตอนนี้แทน cog_load() เพราะตอน cog_load บอทยัง login ไม่เสร็จ
+        # (bot.user ยังไม่มี) mafic เลยรอ "client ready" อยู่ตลอดไปไม่มีวันจบ
+        if self.node_ready:
+            return  # เชื่อมไปแล้วรอบก่อน (on_ready อาจยิงซ้ำได้ตอน reconnect)
+        if not (LAVALINK_HOST and LAVALINK_PORT and LAVALINK_PASSWORD):
             return
         try:
             await self.pool.create_node(
