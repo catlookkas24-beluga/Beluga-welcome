@@ -9,6 +9,7 @@ cogs/music.py — 🎵 Music Player
 
 import asyncio
 import logging
+import os
 
 import discord
 from discord import app_commands
@@ -16,6 +17,16 @@ from discord.ext import commands
 import yt_dlp
 
 log = logging.getLogger("beluga")
+
+# ต้องมี cookies.txt (รูปแบบ Netscape) เพื่อผ่านการเช็ค "Sign in to confirm you're not a bot" ของ YouTube
+# หาไฟล์ตามลำดับนี้: Render Secret File ก่อน แล้วค่อย fallback มาที่ root โปรเจกต์
+_COOKIE_CANDIDATES = ["/etc/secrets/cookies.txt", "cookies.txt"]
+COOKIES_FILE = next((p for p in _COOKIE_CANDIDATES if os.path.isfile(p)), None)
+
+if COOKIES_FILE:
+    log.info(f"[music] พบไฟล์ cookies ที่ {COOKIES_FILE} — จะใช้ยืนยันตัวตนกับ YouTube")
+else:
+    log.warning("[music] ไม่พบไฟล์ cookies.txt — ถ้า YouTube ขึ้น 'Sign in to confirm you're not a bot' ต้องเพิ่มไฟล์นี้")
 
 YTDL_OPTIONS = {
     "format": "bestaudio/best",
@@ -25,6 +36,8 @@ YTDL_OPTIONS = {
     "default_search": "ytsearch",
     "source_address": "0.0.0.0",
 }
+if COOKIES_FILE:
+    YTDL_OPTIONS["cookiefile"] = COOKIES_FILE
 
 FFMPEG_OPTIONS = {
     "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
