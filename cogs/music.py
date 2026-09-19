@@ -244,7 +244,13 @@ class Music(commands.Cog):
         if player is None or player.current is None:
             await interaction.response.send_message("⛔ ไม่มีเพลงเล่นอยู่ครับ", ephemeral=True)
             return
-        await interaction.response.send_message(f"🎶 กำลังเล่น: **{player.current.title}**\n{player.current.uri}")
+        position_sec = int((player.position or 0) / 1000)
+        minutes, seconds = divmod(position_sec, 60)
+        await interaction.response.send_message(
+            f"🎶 กำลังเล่น: **{player.current.title}**\n"
+            f"⏱️ ตำแหน่งปัจจุบัน: {minutes}:{seconds:02d}\n"
+            f"{player.current.uri}"
+        )
 
     @app_commands.command(name="volume", description="ปรับระดับเสียง (0-100)")
     @app_commands.describe(level="ระดับเสียง 0-100")
