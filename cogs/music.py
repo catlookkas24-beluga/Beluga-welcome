@@ -130,7 +130,9 @@ class Music(commands.Cog):
         player = event.player
         log.error(f"[music] เล่นเพลงพลาด (guild {player.guild.id}): {event.exception}")
         if isinstance(player, MusicPlayer) and player.text_channel is not None:
-            await player.text_channel.send(f"⛔ เล่นเพลงนี้ไม่สำเร็จ: `{event.exception.get('message', 'ไม่ทราบสาเหตุ')}`")
+            raw_message = event.exception.get("message", "ไม่ทราบสาเหตุ") or "ไม่ทราบสาเหตุ"
+            short_message = raw_message.splitlines()[0][:300]  # เอาแค่บรรทัดแรก ตัดไม่เกิน 300 ตัวอักษร กัน Discord ปฏิเสธข้อความยาวเกิน
+            await player.text_channel.send(f"⛔ เล่นเพลงนี้ไม่สำเร็จ: `{short_message}`")
 
     # ---------- Slash commands ----------
 
