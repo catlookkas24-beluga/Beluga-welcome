@@ -1,0 +1,55 @@
+server:
+  port: ${PORT:2333}   # ใช้ค่าจาก Render (PORT) ถ้ามี ไม่งั้น fallback เป็น 2333
+  address: 0.0.0.0
+
+lavalink:
+  server:
+    # รหัสผ่านอ่านจาก environment variable LAVALINK_SERVER_PASSWORD (ตั้งเองบน Render)
+    # ห้ามใส่รหัสผ่านตรงๆ ในไฟล์นี้ เพราะจะถูก push ขึ้น GitHub
+    password: "${LAVALINK_SERVER_PASSWORD}"
+    sources:
+      youtube: false     # ปิด source เดิมที่ถูกถอดออกจาก core แล้ว — ใช้ plugin ข้างล่างแทน
+      bandcamp: true
+      soundcloud: true
+      twitch: true
+      vimeo: true
+      http: true
+      local: false
+    bufferDurationMs: 400
+    frameBufferDurationMs: 5000
+    trackStuckThresholdMs: 10000
+    playerUpdateInterval: 5
+
+  plugins:
+    - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.2"
+      repository: "https://maven.lavalink.dev/releases"
+
+plugins:
+  youtube:
+    enabled: true
+    allowSearch: true
+    allowDirectVideoIds: true
+    allowDirectPlaylistIds: true
+    oauth:
+      enabled: true
+      # ใส่ refresh token ผ่าน env var YT_OAUTH_REFRESH_TOKEN แทน — กัน Render ล้างการล็อกอินทุกครั้งที่ deploy ใหม่
+      refreshToken: "${YT_OAUTH_REFRESH_TOKEN:}"
+    clients:
+      - TV   # client ที่ถูกต้องสำหรับ OAuth (TVHTML5_SIMPLY เป็นคนละตัว ไม่รองรับ OAuth)
+      - MUSIC
+      - ANDROID_VR
+      - WEB
+      - WEBEMBEDDED
+
+metrics:
+  prometheus:
+    enabled: false
+
+logging:
+  level:
+    root: INFO
+    lavalink: INFO
+  logback:
+    rollingpolicy:
+      max-file-size: 50MB
+      max-history: 3
