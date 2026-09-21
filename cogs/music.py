@@ -45,18 +45,20 @@ class GuildMusicState:
         self.queue: list[QueueItem] = []
         self.current: QueueItem | None = None
         self.volume: float = 0.5
-        self.bass: int = 6      # เพิ่มเบสเริ่มต้นเล็กน้อย (0 = ปิด, ยิ่งมากยิ่งหนัก)
+        self.bass: int = 0      # ปิดไว้เป็นค่าเริ่มต้น — เปิดเองผ่าน /eq ถ้าต้องการ (ลดภาระ CPU บน Render free tier)
         self.treble: int = 0    # เสียงแหลม (ลบ = ลดแหลม, บวก = เพิ่มแหลม)
         self.voice_client: discord.VoiceClient | None = None
         self.text_channel: discord.abc.Messageable | None = None
 
     def ffmpeg_options(self) -> dict:
-        """สร้าง FFmpeg options ใหม่ทุกครั้งตามค่า EQ ปัจจุบันของเซิร์ฟนี้"""
-        audio_filter = f"bass=g={self.bass},treble=g={self.treble},dynaudnorm=f=200"
-        return {
-            "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
-            "options": f'-vn -af "{audio_filter}"',
-        }
+        """สร้าง FFmpeg options ตามค่า EQ ปัจจุบัน — ไม่ใส่ filter เลยถ้าไม่ได้ตั้งค่าอะไรไว้ (เบาที่สุด กันเสียงกระตุกบน CPU จำกัดของ Render)"""
+        base = {"before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"}
+        if self.bass == 0 and self.treble == 0:
+            base["options"] = "-vn"
+        else:
+            audio_filter = f"bass=g={self.bass},treble=g={self.treble}"
+            base["options"] = f'-vn -af "{audio_filter}"'
+        return base
 
 
 class Music(commands.Cog):
@@ -261,7 +263,7 @@ class Music(commands.Cog):
         await interaction.response.send_message(f"🎶 กำลังเล่น: **{state.current.title}**")
 
     @app_commands.command(name="eq", description="ปรับ EQ เบส/แหลม (มีผลตั้งแต่เพลงถัดไป หรือ /skip เพื่อให้มีผลทันที)")
-    @app_commands.describe(bass="ระดับเบส -10 ถึง 20 (ค่าเริ่มต้น 6)", treble="ระดับแหลม -10 ถึง 20 (ค่าเริ่มต้น 0)")
+    @app_commands.describe(bass="ระดับเบส -10 ถึง 20 (ค่าเริ่มต้น 0 = ปิด)", treble="ระดับแหลม -10 ถึง 20 (ค่าเริ่มต้น 0)")
     async def eq(
         self,
         interaction: discord.Interaction,
