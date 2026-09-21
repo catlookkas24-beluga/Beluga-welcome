@@ -30,11 +30,6 @@ import db
 
 log = logging.getLogger("beluga")
 
-FFMPEG_OPTIONS = {
-    "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
-    "options": "-vn",
-}
-
 
 class QueueItem:
     __slots__ = ("title", "url", "requester")
@@ -50,8 +45,18 @@ class GuildMusicState:
         self.queue: list[QueueItem] = []
         self.current: QueueItem | None = None
         self.volume: float = 0.5
+        self.bass: int = 6      # เพิ่มเบสเริ่มต้นเล็กน้อย (0 = ปิด, ยิ่งมากยิ่งหนัก)
+        self.treble: int = 0    # เสียงแหลม (ลบ = ลดแหลม, บวก = เพิ่มแหลม)
         self.voice_client: discord.VoiceClient | None = None
         self.text_channel: discord.abc.Messageable | None = None
+
+    def ffmpeg_options(self) -> dict:
+        """สร้าง FFmpeg options ใหม่ทุกครั้งตามค่า EQ ปัจจุบันของเซิร์ฟนี้"""
+        audio_filter = f"bass=g={self.bass},treble=g={self.treble},dynaudnorm=f=200"
+        return {
+            "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
+            "options": f'-vn -af "{audio_filter}"',
+        }
 
 
 class Music(commands.Cog):
@@ -86,7 +91,7 @@ class Music(commands.Cog):
         if state.voice_client is None or not state.voice_client.is_connected():
             return
 
-        source = discord.FFmpegPCMAudio(item.url, **FFMPEG_OPTIONS)
+        source = discord.FFmpegPCMAudio(item.url, **state.ffmpeg_options())
         source = discord.PCMVolumeTransformer(source, volume=state.volume)
 
         def after_playing(error):
@@ -255,9 +260,27 @@ class Music(commands.Cog):
             return
         await interaction.response.send_message(f"🎶 กำลังเล่น: **{state.current.title}**")
 
-    @app_commands.command(name="volume", description="ปรับระดับเสียง (0-100)")
-    @app_commands.describe(level="ระดับเสียง 0-100")
-    async def volume(self, interaction: discord.Interaction, level: app_commands.Range[int, 0, 100]):
+    @app_commands.command(name="eq", description="ปรับ EQ เบส/แหลม (มีผลตั้งแต่เพลงถัดไป หรือ /skip เพื่อให้มีผลทันที)")
+    @app_commands.describe(bass="ระดับเบส -10 ถึง 20 (ค่าเริ่มต้น 6)", treble="ระดับแหลม -10 ถึง 20 (ค่าเริ่มต้น 0)")
+    async def eq(
+        self,
+        interaction: discord.Interaction,
+        bass: app_commands.Range[int, -10, 20] | None = None,
+        treble: app_commands.Range[int, -10, 20] | None = None,
+    ):
+        state = self.get_state(interaction.guild_id)
+        if bass is not None:
+            state.bass = bass
+        if treble is not None:
+            state.treble = treble
+        await interaction.response.send_message(
+            f"🎚️ ตั้งค่า EQ แล้วครับ — เบส: **{state.bass}**, แหลม: **{state.treble}**\n"
+            f"(มีผลตั้งแต่เพลงถัดไป ถ้าอยากให้เพลงที่เล่นอยู่เปลี่ยนทันที ให้ `/skip` แล้วเปิดใหม่ หรือ `/play` เพลงเดิมซ้ำ)"
+        )
+
+    @app_commands.command(name="volume", description="ปรับระดับเสียง (0-200, เกิน 100 คือขยายเสียงเพิ่มจากต้นฉบับ)")
+    @app_commands.describe(level="ระดับเสียง 0-200 (100 = ปกติ, เกิน 100 = ดังกว่าต้นฉบับ)")
+    async def volume(self, interaction: discord.Interaction, level: app_commands.Range[int, 0, 200]):
         state = self.get_state(interaction.guild_id)
         state.volume = level / 100
         if state.voice_client is not None and state.voice_client.source is not None:
