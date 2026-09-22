@@ -4,74 +4,19 @@ db.py
 เก็บ config แยกตาม guild_id เป็นเอกสารเดียวต่อเซิร์ฟเวอร์ ทำให้บอทตัวเดียวดูแลได้หลายเซิร์ฟ
 
 🆕 อัปเดต: เพิ่มระบบ "logging" (เบาเวอร์ชันแรก — เก็บแค่ channel_id ที่จะโพสต์ log)
-🆕 อัปเดต: รวม schema กับ "db 2.py" ที่แยกกิ่งไปก่อนหน้านี้ — เพิ่ม avatar_enabled และ
-text_color กลับเข้ามาใน welcome defaults (ยืนยันแล้วว่า welcome.py / welcome_wizard.py
-ใช้ทั้งสอง field นี้จริง) ไฟล์นี้คือ schema ที่ถูกต้องตัวเดียวที่ทั้งบอทและแดชบอร์ดควร import
 """
 
 import os
-import sys
 from datetime import datetime, timedelta, timezone
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorGridFSBucket
 from bson import ObjectId
 
-# 🩺 SCHEMA VERSION MARKER — เปลี่ยนทุกครั้งที่แก้ DEFAULT_CONFIG หรือ diagnostic นี้
-# ใช้เทียบว่า process ที่รันอยู่จริงบน Render โหลดไฟล์เวอร์ชันไหน (grep หา marker นี้ใน log)
-DB_SCHEMA_VERSION = "2026-09-12-avatar-textcolor-reconciled"
-
 MONGO_URI = os.getenv("MONGO_URI")
 MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "beluga_control")
-
-
-# 🛡️ ENV VALIDATION — ป้องกัน production bug ที่เจอวันนี้ (2026-09-12): MONGO_DB_NAME มี
-# trailing whitespace บน service หนึ่ง ทำให้ Dashboard กับ Bot ต่อคนละ MongoDB database กันจริง ๆ
-# (MongoDB มองว่า "beluga_control" กับ "beluga_control " เป็นคนละฐานข้อมูล) ทั้งที่ print ค่าออกมา
-# ดูเหมือนกันเป๊ะด้วยตาเปล่า — HTTP 200 ทุกครั้ง, MongoDB write สำเร็จทุกครั้ง, แต่ฝั่งอ่านไม่เห็นค่า
-#
-# กฎ: ถ้า MONGO_URI หรือ MONGO_DB_NAME มี leading/trailing whitespace, newline, หรือ tab ปนอยู่
-# ให้ "crash ทันทีตอน startup" พร้อมข้อความชัดเจน — ห้าม trim แล้วปล่อยผ่านเงียบ ๆ (เพราะจะกลาย
-# เป็นการซ่อนบั๊กไว้อีกชั้น ถ้าคนตั้งค่าไม่รู้ว่ามี whitespace แฝงอยู่) และห้าม fallback ไป database อื่น
-def _assert_no_stray_whitespace(name: str, value: str) -> None:
-    if value is None:
-        return
-    if value != value.strip() or any(c in value for c in ("\n", "\t", "\r")):
-        raise RuntimeError(
-            f"[db.py] ENV VALIDATION FAILED: {name} มีช่องว่าง/newline/tab แฝงอยู่ที่ต้นหรือท้ายค่า "
-            f"(raw={value!r}) — นี่คือสาเหตุ production bug ที่ Dashboard กับ Bot ต่อคนละ MongoDB "
-            f"database กัน แก้ไขค่า {name} ใน environment variables ให้ตรงตัวเป๊ะ ๆ แล้ว deploy ใหม่ "
-            f"(ระบบจะไม่ trim ให้อัตโนมัติ เพราะจะซ่อนปัญหานี้ไว้เงียบ ๆ อีกครั้ง)"
-        )
-
-
-_assert_no_stray_whitespace("MONGO_URI", MONGO_URI)
-_assert_no_stray_whitespace("MONGO_DB_NAME", MONGO_DB_NAME)
 
 _client = AsyncIOMotorClient(MONGO_URI)
 _db = _client[MONGO_DB_NAME]
 guilds = _db["guild_configs"]
-
-
-def _redact_mongo_uri(uri: str) -> str:
-    if not uri:
-        return "(ไม่ได้ตั้ง MONGO_URI)"
-    if "@" in uri:
-        scheme_and_creds, rest = uri.rsplit("@", 1)
-        scheme = scheme_and_creds.split("//")[0]
-        return f"{scheme}//***:***@{rest}"
-    return uri
-
-
-# 🩺 DIAGNOSTIC — ใช้ print() ล้วน ๆ ไม่ผ่าน logging module เลย เพราะ logging ต้องพึ่ง handler/config
-# ที่อาจยังไม่ถูกตั้งตอนไฟล์นี้ถูก import (เช่น import db ใน app.py มาก่อน logging.basicConfig())
-# print() ไป stdout ตรง ๆ แบบนี้ Render (หรือ log collector ไหนก็ตาม) จับได้แน่นอน 100% ไม่มีทาง
-# ถูกกรองทิ้งเงียบ ๆ เหมือน logging เคยเป็นมาก่อน — ถ้ายังไม่เห็นบรรทัดนี้ใน log แปลว่าไฟล์นี้
-# (เวอร์ชันนี้) ไม่ได้ถูก import ขึ้นมาจริง ๆ (deploy เก่าค้าง / cache / import ไฟล์ผิดตัว)
-print(
-    f"[BELUGA-DB-BOOT] db.py version={DB_SCHEMA_VERSION!r} loaded from file={__file__} "
-    f"| MongoDB host={_redact_mongo_uri(MONGO_URI)} db={MONGO_DB_NAME!r} collection=guild_configs",
-    file=sys.stderr,
-    flush=True,
-)
 
 # 📊 Activity/Stats Dashboard — เก็บสถิติข้อความ/เวลาเข้าเสียงแยกกัน 2 collection:
 # - activity_totals: ยอดรวมตลอดกาลต่อคน (rank เร็ว ไม่ต้อง aggregate ทุกครั้ง)
@@ -80,7 +25,7 @@ activity_totals = _db["activity_totals"]
 activity_daily = _db["activity_daily"]
 tickets = _db["tickets"]  # 🎫 บันทึกตั๋วที่เปิดอยู่/ปิดแล้ว กันเปิดซ้ำและไว้ตรวจสอบย้อนหลัง
 welcome_presets = _db["welcome_presets"]  # 🎨 บันทึกดีไซน์ welcome ไว้หลายชุด สลับใช้ได้
-music_library = _db["music_library"]  # 🎵 คลังเพลง — ชื่อเพลง + ลิงก์ไฟล์เสียงตรง (ไม่ผ่าน YouTube)
+songs = _db["songs"]  # 🎵 คลังเพลงของแต่ละ guild (ลิงก์ไฟล์เสียงตรง + ภาพปกไม่บังคับ)
 
 # GridFS bucket สำหรับเก็บไฟล์ที่ผู้ใช้อัปโหลด (รูป/ฟอนต์/config) แบบถาวร
 # ไม่หายตอน redeploy บอท (ต่างจากดิสก์ของ Render ที่ล้างทุกครั้งที่ deploy ใหม่)
@@ -136,10 +81,8 @@ DEFAULT_CONFIG = {
         "extra_embed_title": None,
         "extra_embed_description": None,
         # 🖼️ ตำแหน่ง/ขนาด avatar และข้อความบน composite image + กรอบ
-        "avatar_enabled": True,
         "avatar_position": "center",
         "avatar_size": 128,
-        "text_color": "#ffffff",
         "text_position": "bottom",
         "border_color": None,
         "border_width": 0,
@@ -542,39 +485,60 @@ async def increment_welcome_send_count(guild_id: int) -> None:
     await guilds.update_one({"_id": guild_id}, {"$inc": {"welcome.send_count": 1}}, upsert=True)
 
 
-# ---------------- Music Library ----------------
-# คลังเพลงต่อเซิร์ฟ — เก็บแค่ "ชื่อเพลง" + "ลิงก์ไฟล์เสียงตรง" (mp3/wav ที่โฮสต์ไว้ที่อื่น)
-# ไม่ผ่าน YouTube เลย จึงไม่มีปัญหาเรื่องการดึงเสียงที่เคยเจอ
+# ---------------- Music / Song Library ----------------
+# คลังเพลงของแต่ละ guild — ชื่อเพลง + ลิงก์ไฟล์เสียงตรง + ภาพปก (ไม่บังคับ)
+# ชื่อเพลงไม่สนตัวพิมพ์เล็ก/ใหญ่ตอนค้นหา (เก็บ _id เป็นตัวพิมพ์เล็กเสมอ แต่โชว์ชื่อจริงตามที่ตั้ง)
 
 def _song_id(guild_id: int, name: str) -> str:
-    return f"{guild_id}:{name.lower()}"
+    return f"{guild_id}:{name.strip().lower()}"
 
 
-async def add_song(guild_id: int, name: str, url: str, added_by: int) -> None:
-    await music_library.update_one(
+async def add_song(
+    guild_id: int,
+    name: str,
+    url: str,
+    added_by: int,
+    thumbnail_url: str | None = None,
+) -> None:
+    """เพิ่มเพลงเข้าคลัง — ถ้าชื่อซ้ำ (ไม่สนตัวพิมพ์เล็ก/ใหญ่) จะเขียนทับของเดิม"""
+    await songs.update_one(
         {"_id": _song_id(guild_id, name)},
-        {"$set": {"guild_id": guild_id, "name": name, "url": url, "added_by": added_by}},
+        {
+            "$set": {
+                "guild_id": guild_id,
+                "name": name.strip(),
+                "url": url,
+                "thumbnail_url": thumbnail_url,
+                "added_by": added_by,
+            }
+        },
         upsert=True,
     )
 
 
 async def remove_song(guild_id: int, name: str) -> bool:
-    result = await music_library.delete_one({"_id": _song_id(guild_id, name)})
+    result = await songs.delete_one({"_id": _song_id(guild_id, name)})
     return result.deleted_count > 0
 
 
 async def get_song(guild_id: int, name: str) -> dict | None:
-    """หาเพลงแบบตรงชื่อก่อน ถ้าไม่เจอลองหาแบบ contains (ไม่สนตัวพิมพ์เล็ก-ใหญ่)"""
-    doc = await music_library.find_one({"_id": _song_id(guild_id, name)})
-    if doc:
-        return doc
-    doc = await music_library.find_one(
-        {"guild_id": guild_id, "name": {"$regex": name, "$options": "i"}}
-    )
-    return doc
+    doc = await songs.find_one({"_id": _song_id(guild_id, name)})
+    if doc is None:
+        return None
+    return {
+        "name": doc["name"],
+        "url": doc["url"],
+        "thumbnail_url": doc.get("thumbnail_url"),
+    }
 
 
 async def list_songs(guild_id: int) -> list[dict]:
-    cursor = music_library.find({"guild_id": guild_id}).sort("name", 1)
-    return [doc async for doc in cursor]
-
+    cursor = songs.find({"guild_id": guild_id}).sort("name", 1)
+    return [
+        {
+            "name": doc["name"],
+            "url": doc["url"],
+            "thumbnail_url": doc.get("thumbnail_url"),
+        }
+        async for doc in cursor
+    ]
