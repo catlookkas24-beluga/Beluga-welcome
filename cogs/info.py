@@ -76,7 +76,7 @@ class InfoEditModal(discord.ui.Modal, title="แก้ไขข้อมูล�
         max_length=100,
     )
     action = discord.ui.TextInput(
-        label="ประเภท: created / version / changelog / remove",
+        label="ประเภท (created/version/changelog/remove)",
         placeholder="เช่น version",
         max_length=20,
     )
