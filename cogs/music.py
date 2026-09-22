@@ -24,6 +24,7 @@ YouTube บล็อกบอท/IP ของ cloud server อยู่เรื
 
 import asyncio
 import logging
+import os
 import subprocess
 import shutil
 from typing import Optional
@@ -41,6 +42,12 @@ log = logging.getLogger("beluga")
 # ============================================================================
 
 FFMPEG_VERSION_REQUIRED = "9.0.2"
+
+# ตั้งค่า env var FFMPEG_PATH บน Render ให้ชี้ไปที่ binary ที่ดาวน์โหลดมาเอง
+# (เช่น "./bin/ffmpeg") เพราะ apt install บน Debian ให้แค่ 5.x เท่านั้น
+# ไม่ตั้งไว้ = ใช้ "ffmpeg" จาก system PATH ตามปกติ (อาจได้เวอร์ชั่นเก่า)
+FFMPEG_EXECUTABLE = os.environ.get("FFMPEG_PATH", "ffmpeg")
+
 FFMPEG_OPTIONS = {
     "reconnect": 1,
     "reconnect_streamed": 1,
@@ -54,7 +61,10 @@ class FFmpegConfig:
 
     @staticmethod
     def get_ffmpeg_path() -> Optional[str]:
-        return shutil.which("ffmpeg")
+        # รองรับทั้ง path ตรงๆ (เช่น ./bin/ffmpeg) และชื่อคำสั่งใน PATH (เช่น ffmpeg)
+        if os.path.isfile(FFMPEG_EXECUTABLE) and os.access(FFMPEG_EXECUTABLE, os.X_OK):
+            return os.path.abspath(FFMPEG_EXECUTABLE)
+        return shutil.which(FFMPEG_EXECUTABLE)
 
     @staticmethod
     def check_ffmpeg_available() -> bool:
@@ -62,9 +72,12 @@ class FFmpegConfig:
 
     @staticmethod
     def get_ffmpeg_version() -> Optional[str]:
+        path = FFmpegConfig.get_ffmpeg_path()
+        if path is None:
+            return None
         try:
             result = subprocess.run(
-                ["ffmpeg", "-version"], capture_output=True, text=True, timeout=5
+                [path, "-version"], capture_output=True, text=True, timeout=5
             )
             if result.returncode == 0:
                 return result.stdout.split("\n")[0]
@@ -423,7 +436,11 @@ class Music(commands.Cog):
             return
 
         try:
-            source = discord.FFmpegPCMAudio(item.url, **state.build_ffmpeg_options())
+            source = discord.FFmpegPCMAudio(
+                item.url,
+                executable=FFmpegConfig.get_ffmpeg_path() or FFMPEG_EXECUTABLE,
+                **state.build_ffmpeg_options(),
+            )
             source = discord.PCMVolumeTransformer(source, volume=state.volume)
 
             def after_playing(error):
