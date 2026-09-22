@@ -64,6 +64,7 @@ INITIAL_COGS = [
     "cogs.theme",
     "cogs.force",
     "cogs.music",  # 🎵 ระบบเล่นเพลง (YouTube/ลิงก์ + queue)
+    "cogs.info",   # ℹ️ เพิ่มใหม่ — /info ดูประวัติ/สถานะบอท + /info-edit แก้ข้อมูลโปรเจกต์
 ]
 
 
