@@ -26,6 +26,7 @@ activity_daily = _db["activity_daily"]
 tickets = _db["tickets"]  # 🎫 บันทึกตั๋วที่เปิดอยู่/ปิดแล้ว กันเปิดซ้ำและไว้ตรวจสอบย้อนหลัง
 welcome_presets = _db["welcome_presets"]  # 🎨 บันทึกดีไซน์ welcome ไว้หลายชุด สลับใช้ได้
 songs = _db["songs"]  # 🎵 คลังเพลงของแต่ละ guild (ลิงก์ไฟล์เสียงตรง + ภาพปกไม่บังคับ)
+bot_meta = _db["bot_meta"]  # ℹ️ ข้อมูลเมทาของบอทเอง (วันที่เริ่มโปรเจกต์/เวอร์ชัน/changelog) — ไม่ผูกกับ guild ไหน ใช้ร่วมกันทุกเซิร์ฟ
 
 # GridFS bucket สำหรับเก็บไฟล์ที่ผู้ใช้อัปโหลด (รูป/ฟอนต์/config) แบบถาวร
 # ไม่หายตอน redeploy บอท (ต่างจากดิสก์ของ Render ที่ล้างทุกครั้งที่ deploy ใหม่)
@@ -542,3 +543,58 @@ async def list_songs(guild_id: int) -> list[dict]:
         }
         async for doc in cursor
     ]
+
+
+# ---------------- Bot Meta (ประวัติ/เวอร์ชันของบอทเอง) ----------------
+# เอกสารเดียวใช้ร่วมกันทุก guild (ไม่ใช่ config แยกตามเซิร์ฟเวอร์เหมือนระบบอื่น)
+# เพราะ "บอทสร้างเมื่อไหร่ อัปเดตล่าสุดเมื่อไหร่" เป็นข้อมูลของบอทตัวเดียว ไม่ใช่ของแต่ละเซิร์ฟ
+
+_BOT_META_ID = "global"
+
+
+async def get_bot_meta() -> dict:
+    doc = await bot_meta.find_one({"_id": _BOT_META_ID})
+    if doc is None:
+        return {"created_date": None, "version": None, "last_updated": None, "changelog": []}
+    return {
+        "created_date": doc.get("created_date"),
+        "version": doc.get("version"),
+        "last_updated": doc.get("last_updated"),
+        "changelog": doc.get("changelog", []),
+    }
+
+
+async def set_bot_created_date(date_str: str) -> None:
+    await bot_meta.update_one({"_id": _BOT_META_ID}, {"$set": {"created_date": date_str}}, upsert=True)
+
+
+async def set_bot_version(version: str, updated_date: str) -> None:
+    """ตั้งเวอร์ชันใหม่ — ถือว่าเป็นการอัปเดตด้วย เลยตั้ง last_updated ให้พร้อมกัน"""
+    await bot_meta.update_one(
+        {"_id": _BOT_META_ID},
+        {"$set": {"version": version, "last_updated": updated_date}},
+        upsert=True,
+    )
+
+
+async def set_bot_last_updated(date_str: str) -> None:
+    await bot_meta.update_one({"_id": _BOT_META_ID}, {"$set": {"last_updated": date_str}}, upsert=True)
+
+
+async def add_bot_changelog(entry: str) -> None:
+    """เพิ่ม changelog รายการใหม่ไว้บนสุด"""
+    await bot_meta.update_one(
+        {"_id": _BOT_META_ID},
+        {"$push": {"changelog": {"$each": [entry], "$position": 0}}},
+        upsert=True,
+    )
+
+
+async def remove_bot_changelog(index: int) -> bool:
+    meta = await get_bot_meta()
+    changelog = meta["changelog"]
+    if index < 0 or index >= len(changelog):
+        return False
+    del changelog[index]
+    await bot_meta.update_one({"_id": _BOT_META_ID}, {"$set": {"changelog": changelog}}, upsert=True)
+    return True
