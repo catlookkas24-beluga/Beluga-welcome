@@ -8,6 +8,10 @@ cogs/info.py — ℹ️ Bot Info & Status
 ⚙️ แก้ข้อมูลโปรเจกต์ (วันที่เริ่ม/เวอร์ชัน/changelog) ผ่าน /info-edit — เปิดเป็น Modal (popup
 ฟอร์ม) ให้กรอกรหัสยืนยัน + รายละเอียด แบบส่วนตัว ไม่มีใครในห้องเห็นค่าที่กรอก
 
+📅 /info-set-created-here — ตั้ง "วันที่เริ่มพัฒนาโปรเจกต์" อัตโนมัติจากวันที่สร้าง
+เซิร์ฟเวอร์ที่ใช้คำสั่งนี้ (ไม่ต้องพิมพ์วันที่เอง กันพิมพ์ผิด) — ใช้คำสั่งนี้ในเซิร์ฟเวอร์
+หลักของโปรเจกต์ (เช่น Beluga) ถ้าบอทอยู่หลายเซิร์ฟ ต้องเลือกรันในอันที่ถูกต้องเอง
+
 ⚠️ ทำไมใช้ Modal แทนใส่รหัสเป็น parameter ของ slash command ตรงๆ:
 Discord โชว์ "[ชื่อคุณ] used /คำสั่ง พร้อมค่าพารามิเตอร์ทั้งหมด" ให้ทุกคนในห้องเห็น
 แม้บอทจะตอบกลับแบบ ephemeral ก็ตาม — ถ้าใส่รหัสเป็น parameter ตรงๆ รหัสจะหลุดทันที
@@ -20,6 +24,7 @@ Modal เป็นวิธีเดียวที่ Discord ให้กร�
 📦 ต้องติดตั้งเพิ่ม: pip install psutil (ใส่ใน requirements.txt ด้วย) — ใช้อ่าน CPU/RAM
 """
 
+import asyncio
 import hmac
 import logging
 import os
@@ -138,6 +143,134 @@ class InfoEditModal(discord.ui.Modal, title="แก้ไขข้อมูล�
             )
 
 
+class SetCreatedFromGuildModal(discord.ui.Modal, title="ตั้งวันที่เริ่มโปรเจกต์"):
+    code = discord.ui.TextInput(
+        label="รหัสยืนยัน",
+        placeholder="กรอกรหัสยืนยัน (เจ้าของบอทเว้นว่างได้)",
+        required=False,
+        max_length=100,
+    )
+
+    def __init__(self, cog: "Info"):
+        super().__init__()
+        self.cog = cog
+
+    async def on_submit(self, interaction: discord.Interaction):
+        is_owner = await self.cog.bot.is_owner(interaction.user)
+        if not is_owner and not _code_is_correct(self.code.value):
+            await interaction.response.send_message("⛔ รหัสยืนยันไม่ถูกต้องครับ", ephemeral=True)
+            return
+
+        if interaction.guild is None:
+            await interaction.response.send_message(
+                "⛔ ต้องใช้คำสั่งนี้ในเซิร์ฟเวอร์ครับ (ใช้ใน DM ไม่ได้ เพราะไม่มีวันที่สร้างเซิร์ฟเวอร์ให้อ้างอิง)",
+                ephemeral=True,
+            )
+            return
+
+        date_str = interaction.guild.created_at.strftime("%Y-%m-%d")
+        await db.set_bot_created_date(date_str)
+        await interaction.response.send_message(
+            f"✅ ตั้งวันที่เริ่มพัฒนาโปรเจกต์เป็น **{date_str}** แล้วครับ "
+            f"(ดึงจากวันที่สร้างเซิร์ฟเวอร์ **{interaction.guild.name}**)",
+            ephemeral=True,
+        )
+
+
+# ============================================================================
+# 🔴 Live Update — ปุ่มให้บอทแก้ไขข้อความเดิมทุกไม่กี่วินาที (ไม่ใช่ push จริงจาก Discord
+# เพราะ Discord ไม่มีระบบนั้น แต่ผลที่เห็นจะเหมือน real-time)
+# ============================================================================
+
+LIVE_UPDATE_INTERVAL = 3     # วินาทีต่อการอัปเดตหนึ่งครั้ง — เร็วกว่านี้เสี่ยงโดน rate limit
+LIVE_DURATION_SECONDS = 180  # หยุดอัตโนมัติหลังจากนี้ กันลืมปิดแล้วรันค้างไปเรื่อยๆ
+
+
+class LiveInfoView(discord.ui.View):
+    def __init__(self, cog: "Info", embed: discord.Embed, field_indices: dict):
+        super().__init__(timeout=LIVE_DURATION_SECONDS + 30)
+        self.cog = cog
+        self.embed = embed
+        self.field_indices = field_indices
+        self.is_live = False
+        self.task: Optional[asyncio.Task] = None
+        self.message: Optional[discord.Message] = None
+
+    @discord.ui.button(label="🔴 อัปเดตสด", style=discord.ButtonStyle.danger)
+    async def toggle_live(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self.is_live:
+            self.is_live = True
+            button.label = "⏹️ หยุดอัปเดตสด"
+            button.style = discord.ButtonStyle.secondary
+            self.message = interaction.message
+            await interaction.response.edit_message(view=self)
+            self.task = asyncio.create_task(self._live_loop())
+        else:
+            await self._stop_live()
+            await interaction.response.edit_message(view=self)
+
+    async def _live_loop(self):
+        elapsed = 0
+        try:
+            while elapsed < LIVE_DURATION_SECONDS:
+                await asyncio.sleep(LIVE_UPDATE_INTERVAL)
+                elapsed += LIVE_UPDATE_INTERVAL
+
+                cpu, ram_used, ram_total, bot_ram = self.cog._get_resource_usage()
+                ping_ms = round(self.cog.bot.latency * 1000)
+                uptime = self.cog._format_uptime()
+
+                fi = self.field_indices
+                self.embed.set_field_at(fi["ping"], name="🏓 Ping", value=f"{ping_ms} ms", inline=True)
+                self.embed.set_field_at(fi["uptime"], name="⏱️ Uptime", value=uptime, inline=True)
+                self.embed.set_field_at(fi["cpu"], name="🖥️ CPU", value=f"{cpu:.1f}%", inline=True)
+                self.embed.set_field_at(
+                    fi["ram"], name="💾 RAM (เครื่อง)",
+                    value=f"{ram_used:,.0f} / {ram_total:,.0f} MB", inline=True,
+                )
+                self.embed.set_field_at(fi["bot_ram"], name="🤖 RAM (เฉพาะบอท)", value=f"{bot_ram:,.0f} MB", inline=True)
+                self.embed.timestamp = datetime.now(timezone.utc)
+
+                if self.message is not None:
+                    await self.message.edit(embed=self.embed)
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            log.warning(f"[info] live update loop หยุดเพราะ error: {e}")
+        finally:
+            self.is_live = False
+            for child in self.children:
+                if isinstance(child, discord.ui.Button):
+                    child.label = "🔴 อัปเดตสด (หมดเวลา — กดใหม่ได้)"
+                    child.style = discord.ButtonStyle.danger
+            if self.message is not None:
+                try:
+                    await self.message.edit(view=self)
+                except discord.HTTPException:
+                    pass
+
+    async def _stop_live(self):
+        self.is_live = False
+        if self.task is not None:
+            self.task.cancel()
+            self.task = None
+        for child in self.children:
+            if isinstance(child, discord.ui.Button):
+                child.label = "🔴 อัปเดตสด"
+                child.style = discord.ButtonStyle.danger
+
+    async def on_timeout(self):
+        if self.task is not None:
+            self.task.cancel()
+        for child in self.children:
+            child.disabled = True
+        if self.message is not None:
+            try:
+                await self.message.edit(view=self)
+            except discord.HTTPException:
+                pass
+
+
 # ============================================================================
 # ℹ️ Info Cog
 # ============================================================================
@@ -239,7 +372,9 @@ class Info(commands.Cog):
         embed.add_field(name="\u200b", value="\u200b", inline=True)
 
         embed.add_field(name="🏓 Ping", value=f"{ping_ms} ms", inline=True)
+        ping_idx = len(embed.fields) - 1
         embed.add_field(name="⏱️ Uptime", value=self._format_uptime(), inline=True)
+        uptime_idx = len(embed.fields) - 1
         embed.add_field(name="🌐 เซิร์ฟเวอร์", value=f"{len(self.bot.guilds)} เซิร์ฟเวอร์", inline=True)
         embed.add_field(name="👥 ผู้ใช้ทั้งหมด", value=f"~{total_members:,} คน", inline=True)
         embed.add_field(
@@ -251,8 +386,11 @@ class Info(commands.Cog):
             embed.add_field(name="🎚️ FFmpeg", value=ffmpeg_status, inline=True)
 
         embed.add_field(name="🖥️ CPU", value=f"{cpu_percent:.1f}%", inline=True)
+        cpu_idx = len(embed.fields) - 1
         embed.add_field(name="💾 RAM (เครื่อง)", value=f"{ram_used_mb:,.0f} / {ram_total_mb:,.0f} MB", inline=True)
+        ram_idx = len(embed.fields) - 1
         embed.add_field(name="🤖 RAM (เฉพาะบอท)", value=f"{bot_ram_mb:,.0f} MB", inline=True)
+        bot_ram_idx = len(embed.fields) - 1
 
         if meta["changelog"]:
             recent = "\n".join(f"• {line}" for line in meta["changelog"][:CHANGELOG_PREVIEW_COUNT])
@@ -261,16 +399,32 @@ class Info(commands.Cog):
                 recent += f"\n-# และอีก {more} รายการ — ดูทั้งหมดที่ /info-list-changelog"
             embed.add_field(name="📜 Changelog ล่าสุด", value=recent, inline=False)
 
-        embed.set_footer(text=f"discord.py {discord.__version__} · Python {platform.python_version()}")
+        embed.set_footer(text=f"discord.py {discord.__version__} · Python {platform.python_version()} · กด 🔴 เพื่อดูสถานะสดทุก {LIVE_UPDATE_INTERVAL} วิ")
         embed.timestamp = datetime.now(timezone.utc)
 
-        await interaction.followup.send(embed=embed)
+        field_indices = {
+            "ping": ping_idx,
+            "uptime": uptime_idx,
+            "cpu": cpu_idx,
+            "ram": ram_idx,
+            "bot_ram": bot_ram_idx,
+        }
+        view = LiveInfoView(self, embed, field_indices)
+        sent_message = await interaction.followup.send(embed=embed, view=view)
+        view.message = sent_message
 
     # ---------- แก้ไขข้อมูลโปรเจกต์ ----------
 
     @app_commands.command(name="info-edit", description="แก้ไขข้อมูลบอท (เปิดฟอร์มกรอกรหัสยืนยันแบบส่วนตัว)")
     async def info_edit(self, interaction: discord.Interaction):
         await interaction.response.send_modal(InfoEditModal(self))
+
+    @app_commands.command(
+        name="info-set-created-here",
+        description="ตั้งวันที่เริ่มพัฒนาโปรเจกต์ = วันที่สร้างเซิร์ฟเวอร์นี้ (ใช้ในเซิร์ฟเวอร์หลักของโปรเจกต์)",
+    )
+    async def info_set_created_here(self, interaction: discord.Interaction):
+        await interaction.response.send_modal(SetCreatedFromGuildModal(self))
 
     @app_commands.command(name="info-list-changelog", description="ดู changelog ทั้งหมดพร้อมเลข index")
     async def info_list_changelog(self, interaction: discord.Interaction):
