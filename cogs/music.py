@@ -27,6 +27,7 @@ import logging
 import os
 import subprocess
 import shutil
+import tempfile
 from typing import Optional
 
 import discord
@@ -52,7 +53,10 @@ FFMPEG_OPTIONS = {
     "reconnect": 1,
     "reconnect_streamed": 1,
     "reconnect_delay_max": 5,
-    "http_persistent": 1,
+    # หมายเหตุ: เคยมี "http_persistent": 1 อยู่ตรงนี้ — เอาออกแล้วเพราะเป็น option
+    # เฉพาะของ HLS demuxer (.m3u8) เท่านั้น ไม่ใช่ option ของ http/https protocol
+    # ทั่วไป พอใช้เปิดไฟล์เดี่ยวอย่าง .m4a/.mp3 ตรงๆ FFmpeg 9.0.2 จะ error
+    # "Option not found" ทันที
 }
 
 
@@ -171,6 +175,40 @@ EQ_PRESETS: dict[str, dict] = {
 DEFAULT_PRESET = "flat"
 
 
+# ============================================================================
+# 🎨 Theme Colors — สีธีม embed ที่ตั้งได้ต่อ guild
+# ============================================================================
+
+THEME_PRESETS: dict[str, int] = {
+    "blurple": 0x5865F2,
+    "แดง": 0xED4245,
+    "ส้ม": 0xE67E22,
+    "เหลือง": 0xF1C40F,
+    "เขียว": 0x57F287,
+    "ฟ้า": 0x3498DB,
+    "ม่วง": 0x9B59B6,
+    "ชมพู": 0xEB459E,
+    "ขาว": 0xFFFFFF,
+    "ดำ": 0x23272A,
+}
+DEFAULT_COLOR = THEME_PRESETS["blurple"]
+
+
+def parse_color(raw: str) -> Optional[int]:
+    """แปลง input เป็นค่าสี — รับได้ทั้งชื่อพรีเซ็ตและ hex code เช่น #ff8800 หรือ ff8800"""
+    key = raw.strip().lower()
+    for name, value in THEME_PRESETS.items():
+        if name.lower() == key:
+            return value
+    hex_str = raw.strip().lstrip("#")
+    if len(hex_str) == 6:
+        try:
+            return int(hex_str, 16)
+        except ValueError:
+            return None
+    return None
+
+
 def make_bar(value: int, min_val: int = -10, max_val: int = 20, length: int = 10) -> str:
     """สร้างแถบ progress bar แบบ unicode สำหรับโชว์ค่า bass/treble"""
     ratio = (value - min_val) / (max_val - min_val)
@@ -183,12 +221,13 @@ def make_bar(value: int, min_val: int = -10, max_val: int = 20, length: int = 10
 # ============================================================================
 
 class QueueItem:
-    __slots__ = ("title", "url", "requester")
+    __slots__ = ("title", "url", "requester", "thumbnail")
 
-    def __init__(self, title: str, url: str, requester: discord.Member):
+    def __init__(self, title: str, url: str, requester: discord.Member, thumbnail: Optional[str] = None):
         self.title = title
         self.url = url
         self.requester = requester
+        self.thumbnail = thumbnail
 
 
 class AudioFilter:
@@ -234,6 +273,7 @@ class GuildMusicState:
         self.audio_filter = AudioFilter()
         self.voice_client: Optional[discord.VoiceClient] = None
         self.text_channel: Optional[discord.abc.Messageable] = None
+        self.color: int = DEFAULT_COLOR
 
     def build_ffmpeg_options(self) -> dict:
         before_parts = [f"-{key} {val}" for key, val in FFMPEG_OPTIONS.items()]
@@ -251,14 +291,14 @@ class GuildMusicState:
 # 🖼️ Embed Builder
 # ============================================================================
 
-def build_eq_embed(audio_filter: AudioFilter) -> discord.Embed:
+def build_eq_embed(audio_filter: AudioFilter, color: int = DEFAULT_COLOR) -> discord.Embed:
     """สร้าง embed สวยๆ โชว์สถานะ EQ ปัจจุบัน"""
     preset_data = EQ_PRESETS[audio_filter.preset]
 
     embed = discord.Embed(
         title="🎚️ Equalizer",
         description=f"{preset_data['emoji']} **{preset_data['label']}**\n{preset_data['desc']}",
-        color=discord.Color.from_rgb(114, 137, 218),
+        color=color,
     )
     embed.add_field(
         name="เบส (Bass)",
@@ -303,7 +343,7 @@ class EQSelect(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction):
         state = self.music_cog.get_state(self.guild_id)
         state.audio_filter.apply_preset(self.values[0])
-        embed = build_eq_embed(state.audio_filter)
+        embed = build_eq_embed(state.audio_filter, state.color)
         await interaction.response.edit_message(embed=embed, view=self.view)
 
 
@@ -316,7 +356,7 @@ class EQResetButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         state = self.music_cog.get_state(self.guild_id)
         state.audio_filter.apply_preset(DEFAULT_PRESET)
-        embed = build_eq_embed(state.audio_filter)
+        embed = build_eq_embed(state.audio_filter, state.color)
         await interaction.response.edit_message(embed=embed, view=self.view)
 
 
@@ -329,7 +369,7 @@ class EQBassDownButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         state = self.music_cog.get_state(self.guild_id)
         state.audio_filter.set_bass(max(-10, state.audio_filter.bass - 2))
-        await interaction.response.edit_message(embed=build_eq_embed(state.audio_filter), view=self.view)
+        await interaction.response.edit_message(embed=build_eq_embed(state.audio_filter, state.color), view=self.view)
 
 
 class EQBassUpButton(discord.ui.Button):
@@ -341,7 +381,7 @@ class EQBassUpButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         state = self.music_cog.get_state(self.guild_id)
         state.audio_filter.set_bass(min(20, state.audio_filter.bass + 2))
-        await interaction.response.edit_message(embed=build_eq_embed(state.audio_filter), view=self.view)
+        await interaction.response.edit_message(embed=build_eq_embed(state.audio_filter, state.color), view=self.view)
 
 
 class EQTrebleDownButton(discord.ui.Button):
@@ -353,7 +393,7 @@ class EQTrebleDownButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         state = self.music_cog.get_state(self.guild_id)
         state.audio_filter.set_treble(max(-10, state.audio_filter.treble - 2))
-        await interaction.response.edit_message(embed=build_eq_embed(state.audio_filter), view=self.view)
+        await interaction.response.edit_message(embed=build_eq_embed(state.audio_filter, state.color), view=self.view)
 
 
 class EQTrebleUpButton(discord.ui.Button):
@@ -365,7 +405,7 @@ class EQTrebleUpButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         state = self.music_cog.get_state(self.guild_id)
         state.audio_filter.set_treble(min(20, state.audio_filter.treble + 2))
-        await interaction.response.edit_message(embed=build_eq_embed(state.audio_filter), view=self.view)
+        await interaction.response.edit_message(embed=build_eq_embed(state.audio_filter, state.color), view=self.view)
 
 
 class EQView(discord.ui.View):
@@ -451,10 +491,14 @@ class Music(commands.Cog):
             state.voice_client.play(source, after=after_playing)
             if state.text_channel is not None:
                 preset_data = EQ_PRESETS[state.audio_filter.preset]
-                await state.text_channel.send(
-                    f"▶️ กำลังเล่น: **{item.title}** — ขอโดย {item.requester.mention}\n"
-                    f"-# {preset_data['emoji']} EQ: {preset_data['label']}"
+                embed = discord.Embed(
+                    description=f"▶️ กำลังเล่น: **{item.title}**\nขอโดย {item.requester.mention}",
+                    color=state.color,
                 )
+                embed.set_footer(text=f"{preset_data['emoji']} EQ: {preset_data['label']}")
+                if item.thumbnail:
+                    embed.set_thumbnail(url=item.thumbnail)
+                await state.text_channel.send(embed=embed)
         except Exception as e:
             log.error(f"[music] เกิด error ขณะเล่น: {e}")
             if state.text_channel:
@@ -480,15 +524,124 @@ class Music(commands.Cog):
     # ---------- Song Library Commands ----------
 
     @app_commands.command(name="addsong", description="เพิ่มเพลงเข้าคลัง (ลิงก์ไฟล์เสียงตรง)")
-    @app_commands.describe(name="ชื่อเพลงที่จะใช้เรียก", url="ลิงก์ไฟล์เสียงตรง (mp3/wav/etc)")
-    async def addsong(self, interaction: discord.Interaction, name: str, url: str):
+    @app_commands.describe(
+        name="ชื่อเพลงที่จะใช้เรียก",
+        url="ลิงก์ไฟล์เสียงตรง (mp3/wav/etc)",
+        thumbnail="ลิงก์รูปภาพปก (ไม่บังคับ) — โชว์เป็นภาพประกอบตอนเล่นเพลง",
+    )
+    async def addsong(
+        self,
+        interaction: discord.Interaction,
+        name: str,
+        url: str,
+        thumbnail: Optional[str] = None,
+    ):
         if not url.startswith(("http://", "https://")):
             await interaction.response.send_message(
                 "⛔ ลิงก์ต้องขึ้นต้นด้วย http:// หรือ https:// ครับ", ephemeral=True
             )
             return
-        await db.add_song(interaction.guild_id, name, url, interaction.user.id)
+        if thumbnail is not None and not thumbnail.startswith(("http://", "https://")):
+            await interaction.response.send_message(
+                "⛔ ลิงก์ภาพปกต้องขึ้นต้นด้วย http:// หรือ https:// ครับ", ephemeral=True
+            )
+            return
+
+        try:
+            # db.py ต้องรองรับ thumbnail_url เป็น keyword เพิ่มเติม (ดูหมายเหตุท้ายไฟล์)
+            await db.add_song(interaction.guild_id, name, url, interaction.user.id, thumbnail_url=thumbnail)
+        except TypeError:
+            # db.py ตัวเก่ายังไม่รองรับ thumbnail_url — เก็บแบบไม่มีภาพปกไปก่อน
+            await db.add_song(interaction.guild_id, name, url, interaction.user.id)
+            if thumbnail is not None:
+                log.warning("db.add_song ยังไม่รองรับ thumbnail_url — ข้ามภาพปกไปก่อน (ดูหมายเหตุท้าย music.py)")
+
         await interaction.response.send_message(f"✅ เพิ่ม **{name}** เข้าคลังเพลงแล้วครับ")
+
+    @app_commands.command(
+        name="addsongfromvideo",
+        description="อัปโหลดวิดีโอที่อัดเอง บอทจะตัดเสียง+จับภาพนิ่งเป็นปกให้อัตโนมัติ",
+    )
+    @app_commands.describe(
+        name="ชื่อเพลงที่จะใช้เรียก",
+        video="ไฟล์วิดีโอที่อัดมา (mp4/mov ฯลฯ) — จำกัดตามขนาดไฟล์ที่ Discord อนุญาตอัปโหลด",
+        thumbnail_time="วินาทีในคลิปที่จะจับภาพเป็นปก (ค่าเริ่มต้น 0 = เฟรมแรก)",
+    )
+    async def addsongfromvideo(
+        self,
+        interaction: discord.Interaction,
+        name: str,
+        video: discord.Attachment,
+        thumbnail_time: Optional[app_commands.Range[int, 0, 3600]] = 0,
+    ):
+        if not (video.content_type and video.content_type.startswith("video/")):
+            await interaction.response.send_message("⛔ ไฟล์ที่แนบต้องเป็นวิดีโอครับ", ephemeral=True)
+            return
+
+        await interaction.response.defer()
+
+        ffmpeg_bin = FFmpegConfig.get_ffmpeg_path() or FFMPEG_EXECUTABLE
+        if not FFmpegConfig.check_ffmpeg_available():
+            await interaction.followup.send("❌ FFmpeg ไม่พบ — ตัดเสียงจากวิดีโอไม่ได้ครับ")
+            return
+
+        tmp_dir = tempfile.mkdtemp(prefix="beluga_video_")
+        try:
+            ext = os.path.splitext(video.filename)[1] or ".mp4"
+            video_path = os.path.join(tmp_dir, f"input{ext}")
+            audio_path = os.path.join(tmp_dir, "audio.m4a")
+            thumb_path = os.path.join(tmp_dir, "thumb.jpg")
+
+            await video.save(video_path)
+
+            # ตัดเสียงออกมาเป็น AAC — Discord voice เล่นได้แค่เสียง ไม่มีทางเล่น "วิดีโอ" ในห้องเสียงได้จริง
+            audio_proc = await asyncio.create_subprocess_exec(
+                ffmpeg_bin, "-y", "-i", video_path, "-vn", "-c:a", "aac", "-b:a", "192k", audio_path,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            )
+            _, audio_stderr = await audio_proc.communicate()
+
+            if audio_proc.returncode != 0 or not os.path.isfile(audio_path):
+                log.error(f"[music] ตัดเสียงจากวิดีโอไม่สำเร็จ: {audio_stderr.decode(errors='ignore')[-500:]}")
+                await interaction.followup.send("❌ ตัดเสียงจากวิดีโอไม่สำเร็จ ลองไฟล์อื่นดูครับ")
+                return
+
+            # จับภาพนิ่งจากวิดีโอไว้เป็นปกเพลง (ภาพประกอบ) — แทนที่การเล่นวิดีโอจริง
+            thumb_proc = await asyncio.create_subprocess_exec(
+                ffmpeg_bin, "-y", "-ss", str(thumbnail_time), "-i", video_path,
+                "-frames:v", "1", "-q:v", "3", thumb_path,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            )
+            await thumb_proc.communicate()
+            has_thumbnail = thumb_proc.returncode == 0 and os.path.isfile(thumb_path)
+
+            # อัปโหลดไฟล์ที่ตัดแล้วเข้า channel นี้เพื่อเอาลิงก์ CDN ของ Discord มาเก็บใน DB แทนไฟล์วิดีโอเต็มๆ
+            files_to_send = [discord.File(audio_path, filename=f"{name}.m4a")]
+            if has_thumbnail:
+                files_to_send.append(discord.File(thumb_path, filename=f"{name}.jpg"))
+
+            upload_msg = await interaction.channel.send(
+                content=f"📦 ไฟล์คลังของ **{name}** (ตัดจากวิดีโอที่อัปโหลด)", files=files_to_send
+            )
+            audio_url = upload_msg.attachments[0].url
+            thumb_url = upload_msg.attachments[1].url if has_thumbnail and len(upload_msg.attachments) > 1 else None
+
+            try:
+                await db.add_song(interaction.guild_id, name, audio_url, interaction.user.id, thumbnail_url=thumb_url)
+            except TypeError:
+                await db.add_song(interaction.guild_id, name, audio_url, interaction.user.id)
+                log.warning("db.add_song ยังไม่รองรับ thumbnail_url — ข้ามภาพปกไปก่อน (ดูหมายเหตุท้าย music.py)")
+
+            state = self.get_state(interaction.guild_id)
+            embed = discord.Embed(
+                description=f"✅ เพิ่ม **{name}** เข้าคลังแล้วครับ — ตัดเสียง+ภาพปกจากวิดีโอให้อัตโนมัติ",
+                color=state.color,
+            )
+            if thumb_url:
+                embed.set_thumbnail(url=thumb_url)
+            await interaction.followup.send(embed=embed)
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
     @app_commands.command(name="removesong", description="ลบเพลงออกจากคลัง")
     @app_commands.describe(name="ชื่อเพลงที่จะลบ")
@@ -508,7 +661,7 @@ class Music(commands.Cog):
         lines = [f"• {s['name']}" for s in songs[:30]]
         if len(songs) > 30:
             lines.append(f"...และอีก {len(songs) - 30} เพลง")
-        embed = discord.Embed(title="🎵 คลังเพลง", description="\n".join(lines), color=discord.Color.blurple())
+        embed = discord.Embed(title="🎵 คลังเพลง", description="\n".join(lines), color=self.get_state(interaction.guild_id).color)
         await interaction.response.send_message(embed=embed)
 
     # ---------- Playback Control Commands ----------
@@ -526,16 +679,17 @@ class Music(commands.Cog):
             return
 
         if query.startswith(("http://", "https://")):
-            title, url = query, query
+            title, url, thumbnail = query, query, None
         else:
             song = await db.get_song(interaction.guild_id, query)
             if song is None:
                 await interaction.followup.send("⛔ ไม่เจอเพลงนี้ในคลังครับ ลองเช็คชื่อด้วย `/songlist`")
                 return
             title, url = song["name"], song["url"]
+            thumbnail = song.get("thumbnail_url")
 
         state = self.get_state(interaction.guild_id)
-        state.queue.append(QueueItem(title, url, interaction.user))
+        state.queue.append(QueueItem(title, url, interaction.user, thumbnail))
 
         if voice_client.is_playing() or voice_client.is_paused():
             await interaction.followup.send(f"➕ เข้าคิวแล้ว: **{title}** — อันดับที่ {len(state.queue)}")
@@ -584,7 +738,7 @@ class Music(commands.Cog):
     @app_commands.command(name="queue", description="ดูคิวเพลงที่รออยู่")
     async def show_queue(self, interaction: discord.Interaction):
         state = self.get_state(interaction.guild_id)
-        embed = discord.Embed(title="🎵 คิวเพลง", color=discord.Color.blurple())
+        embed = discord.Embed(title="🎵 คิวเพลง", color=state.color)
 
         if state.current:
             embed.add_field(
@@ -592,6 +746,8 @@ class Music(commands.Cog):
                 value=f"**{state.current.title}** — ขอโดย {state.current.requester.mention}",
                 inline=False,
             )
+            if state.current.thumbnail:
+                embed.set_thumbnail(url=state.current.thumbnail)
         else:
             embed.add_field(name="กำลังเล่น", value="ไม่มีเพลงเล่นอยู่", inline=False)
 
@@ -614,7 +770,10 @@ class Music(commands.Cog):
         if state.current is None:
             await interaction.response.send_message("⛔ ไม่มีเพลงเล่นอยู่ครับ", ephemeral=True)
             return
-        await interaction.response.send_message(f"🎶 กำลังเล่น: **{state.current.title}**")
+        embed = discord.Embed(description=f"🎶 กำลังเล่น: **{state.current.title}**", color=state.color)
+        if state.current.thumbnail:
+            embed.set_thumbnail(url=state.current.thumbnail)
+        await interaction.response.send_message(embed=embed)
 
     # ---------- EQ Commands ----------
 
@@ -644,14 +803,41 @@ class Music(commands.Cog):
         if treble is not None:
             state.audio_filter.set_treble(treble)
 
-        await interaction.response.send_message(embed=build_eq_embed(state.audio_filter))
+        await interaction.response.send_message(embed=build_eq_embed(state.audio_filter, state.color))
 
     @app_commands.command(name="eqmenu", description="เปิดเมนู EQ แบบ interactive เลือก/ปรับได้เลย")
     async def eqmenu(self, interaction: discord.Interaction):
         state = self.get_state(interaction.guild_id)
-        embed = build_eq_embed(state.audio_filter)
+        embed = build_eq_embed(state.audio_filter, state.color)
         view = EQView(self, interaction.guild_id)
         await interaction.response.send_message(embed=embed, view=view)
+
+    # ---------- Theme Commands ----------
+
+    async def _theme_color_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        current_lower = current.lower()
+        matches = [name for name in THEME_PRESETS.keys() if current_lower in name.lower()]
+        if not matches:
+            matches = list(THEME_PRESETS.keys())
+        return [app_commands.Choice(name=name, value=name) for name in matches[:25]]
+
+    @app_commands.command(name="settheme", description="ตั้งสีธีม embed ของบอทในเซิร์ฟเวอร์นี้")
+    @app_commands.describe(color="เลือกพรีเซ็ต หรือพิมพ์ hex code เอง เช่น #ff8800")
+    @app_commands.autocomplete(color=_theme_color_autocomplete)
+    async def settheme(self, interaction: discord.Interaction, color: str):
+        parsed = parse_color(color)
+        if parsed is None:
+            await interaction.response.send_message(
+                "⛔ ใส่สีไม่ถูกต้องครับ — เลือกจากพรีเซ็ต หรือพิมพ์ hex code เช่น `#ff8800`",
+                ephemeral=True,
+            )
+            return
+        state = self.get_state(interaction.guild_id)
+        state.color = parsed
+        embed = discord.Embed(description="🎨 ตั้งสีธีมใหม่เรียบร้อยแล้วครับ ดูตัวอย่างสีนี้ได้เลย", color=parsed)
+        await interaction.response.send_message(embed=embed)
 
     # ---------- Volume & Voice Control ----------
 
@@ -683,7 +869,7 @@ class Music(commands.Cog):
             )
             return
 
-        embed = discord.Embed(title="ℹ️ FFmpeg Information", color=discord.Color.green())
+        embed = discord.Embed(title="ℹ️ FFmpeg Information", color=self.get_state(interaction.guild_id).color)
         embed.add_field(name="ข้อกำหนด", value=f"`FFmpeg {FFMPEG_VERSION_REQUIRED}+`", inline=False)
         embed.add_field(name="ติดตั้งแล้ว", value=f"`{FFmpegConfig.get_ffmpeg_version()}`", inline=False)
         embed.add_field(name="Path", value=f"`{FFmpegConfig.get_ffmpeg_path()}`", inline=False)
