@@ -478,15 +478,19 @@ def get_panel_elapsed(state: GuildMusicState) -> float:
     return max(0.0, now - state.started_at - paused_total)
 
 
+BOT_NAME = "Anyaluga"
+
+
 def build_music_panel_embed(state: GuildMusicState) -> discord.Embed:
-    """สร้าง Now Playing panel ให้หน้าตาใกล้เคียงตัวอย่างที่ส่งมา"""
+    """สร้าง Now Playing panel สไตล์การ์ดเพลง (คล้ายตัวอย่างที่ส่งมา) พร้อมแบรนด์ Anyaluga"""
     if state.current is None:
         embed = discord.Embed(
-            title="🎵 Now Playing",
-            description="ไม่มีเพลงกำลังเล่นอยู่\nใช้ `/play` เพื่อเริ่มเพลง",
+            title="ไม่มีเพลงกำลังเล่นอยู่",
+            description="ใช้ `/play` เพื่อเริ่มเพลง",
             color=state.color,
         )
-        embed.set_footer(text="Beluga Music • Audio Library")
+        embed.set_author(name=f"🎵 {BOT_NAME}")
+        embed.set_footer(text=f"{BOT_NAME} • Audio Library")
         return embed
 
     item = state.current
@@ -503,46 +507,42 @@ def build_music_panel_embed(state: GuildMusicState) -> discord.Embed:
     progress = _progress_bar(elapsed, duration)
     time_text = f"{_format_time(elapsed)} / {_format_time(duration)}"
 
+    preset_data = EQ_PRESETS[state.audio_filter.preset]
+    repeat_label = {"off": "ปิด", "one": "เพลงนี้", "all": "ทั้งหมด"}.get(state.repeat, "ปิด")
+    shuffle_label = "เปิด" if state.shuffle else "ปิด"
+    favorite_label = "❤️" if item.url in state.favorites else "♡"
+
     embed = discord.Embed(
-        title="🎵 Now Playing",
+        title=item.title,
         description=(
-            f"**{status}** • 🎧 **Audio Library**\n"
-            f"## {item.title}\n"
-            f"👤 ขอโดย {item.requester.mention}\n\n"
-            f"`{progress}`\n"
-            f"`{time_text}`"
+            f"{item.requester.mention}\n\n"
+            f"`{time_text}`\n"
+            f"`{progress}`"
         ),
         color=state.color,
     )
+    # แถบเล็กด้านบน เลียนแบบ "Playing from ..." ในตัวอย่าง
+    embed.set_author(name=f"🎵 {BOT_NAME} • เล่นจาก Audio Library")
 
     if item.thumbnail:
         embed.set_thumbnail(url=item.thumbnail)
 
-    preset_data = EQ_PRESETS[state.audio_filter.preset]
-    repeat_label = {"off": "ปิด", "one": "เพลงนี้", "all": "ทั้งหมด"}.get(state.repeat, "ปิด")
-    shuffle_label = "เปิด" if state.shuffle else "ปิด"
-    favorite_label = "❤️ ถูกใจแล้ว" if item.url in state.favorites else "♡ ถูกใจ"
-
     embed.add_field(
-        name="🎚️ Audio",
-        value=(
-            f"🔊 **{round(state.volume * 100)}%**  •  "
-            f"🎛️ **{preset_data['label']}**\n"
-            f"🔁 **{repeat_label}**  •  🔀 **{shuffle_label}**"
-        ),
+        name="สถานะ",
+        value=f"{status}  •  🎛️ {preset_data['emoji']} **{preset_data['label']}**",
         inline=False,
     )
-    embed.add_field(
-        name="📋 Queue",
-        value=f"**{len(state.queue)}** เพลงรออยู่",
-        inline=True,
+    embed.add_field(name="🔁 วนซ้ำ", value=repeat_label, inline=True)
+    embed.add_field(name="🔀 สุ่ม", value=shuffle_label, inline=True)
+    embed.add_field(name=f"{favorite_label} ถูกใจ", value="\u200b", inline=True)
+    embed.add_field(name="📋 คิว", value=f"{len(state.queue)} เพลง", inline=True)
+
+    embed.set_footer(
+        text=(
+            f"พิมพ์ชื่อเพลงเพื่อเพิ่มเพลง • Vol: {round(state.volume * 100)}% "
+            f"• Repeat: {repeat_label}"
+        )
     )
-    embed.add_field(
-        name="❤️ Favorite",
-        value=favorite_label,
-        inline=True,
-    )
-    embed.set_footer(text="Beluga Music • ใช้ปุ่มด้านล่างควบคุมเพลงได้ทันที")
     return embed
 
 
