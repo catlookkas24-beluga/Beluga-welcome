@@ -13,6 +13,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from checks import require_permission
+import style
 
 # Thai label -> ชื่อ attribute ของ discord.PermissionOverwrite
 PERMISSION_MAP = {
@@ -333,9 +334,10 @@ class Permissions(commands.Cog):
 
         embed = discord.Embed(
             title=f"🔑 สิทธิ์พิเศษของ {role.name}",
-            description="\n".join(lines[:25]),
-            color=role.color,
+            description=f"{style.DIVIDER}\n" + "\n".join(lines[:25]),
+            color=role.color if role.color.value else style.DEFAULT_COLOR,
         )
+        embed.set_footer(text=f"{style.SYSTEM_ICON['permissions']} {style.BRAND}")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 

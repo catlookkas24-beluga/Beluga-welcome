@@ -12,6 +12,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import db
+import style
 from checks import require_permission
 from cogs.welcome import parse_hex_color
 
@@ -26,10 +27,11 @@ async def build_verify_panel_message(
     banner_asset_id = verify_cfg.get("banner_asset_id")
 
     embed = discord.Embed(
-        title="ยืนยันตัวตน",
-        description="กดปุ่มด้านล่างเพื่อยืนยันตัวตนและเข้าใช้งานเซิร์ฟเวอร์แบบเต็มรูปแบบ",
+        title="🛡️ ยืนยันตัวตน",
+        description=f"กดปุ่มด้านล่างเพื่อยืนยันตัวตนและเข้าใช้งานเซิร์ฟเวอร์แบบเต็มรูปแบบ\n{style.DIVIDER}",
         color=parse_hex_color(verify_cfg.get("color", "#2ecc71")),
     )
+    embed.set_footer(text=f"{style.SYSTEM_ICON['verify']} {style.BRAND}")
 
     file = None
     if banner_asset_id:

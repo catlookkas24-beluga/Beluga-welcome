@@ -12,6 +12,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 import db
+import style
 from checks import require_permission
 
 
@@ -137,9 +138,10 @@ class AutoRole(commands.Cog):
     async def autorole_post_claim(self, interaction: discord.Interaction):
         embed = discord.Embed(
             title="🏅 รับยศตามอายุสมาชิก",
-            description="กดปุ่มด้านล่างเพื่อตรวจสอบและรับยศตามระยะเวลาที่คุณอยู่ในเซิร์ฟเวอร์",
+            description=f"กดปุ่มด้านล่างเพื่อตรวจสอบและรับยศตามระยะเวลาที่คุณอยู่ในเซิร์ฟเวอร์\n{style.DIVIDER}",
             color=discord.Color.gold(),
         )
+        embed.set_footer(text=f"{style.SYSTEM_ICON['autorole']} {style.BRAND}")
         await interaction.channel.send(embed=embed, view=ClaimRoleView())
         await db.update_guild_section(
             interaction.guild_id, "autorole", {"claim_channel_id": interaction.channel_id}

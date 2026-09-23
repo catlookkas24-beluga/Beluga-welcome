@@ -15,6 +15,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import db
+import style
 from checks import require_permission
 from cogs.font import BUILTIN_FONTS, font_autocomplete
 from cogs.welcome import build_welcome_message, parse_hex_color
@@ -78,6 +79,7 @@ class WizardSession:
             ),
             inline=False,
         )
+        embed.set_footer(text=f"🧙 {style.BRAND} Wizard")
         return embed
 
 
@@ -413,9 +415,10 @@ class Step5View(WizardNavRow):
         await db.update_guild_section(self.session.guild_id, "welcome", self.session.data)
         embed = discord.Embed(
             title="✅ บันทึกและใช้งานจริงแล้ว!",
-            description="ค่าที่ตั้งไว้ทั้งหมดถูกนำไปใช้กับข้อความต้อนรับแล้วครับ",
-            color=discord.Color.green(),
+            description=f"ค่าที่ตั้งไว้ทั้งหมดถูกนำไปใช้กับข้อความต้อนรับแล้วครับ\n{style.DIVIDER}",
+            color=style.COLOR_SUCCESS,
         )
+        embed.set_footer(text=f"🧙 {style.BRAND} Wizard")
         await interaction.response.edit_message(embed=embed, view=None)
 
     @discord.ui.button(label="ยกเลิก", emoji="✖️", style=discord.ButtonStyle.danger, row=2)

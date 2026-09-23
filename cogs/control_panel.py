@@ -9,6 +9,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import db
+import style as brand_style
 from checks import require_permission
 
 SYSTEM_LABELS = {
@@ -59,10 +60,13 @@ class ControlPanel(commands.Cog):
     async def beluga_panel(self, interaction: discord.Interaction):
         cfg = await db.get_guild_config(interaction.guild_id)
         embed = discord.Embed(
-            title="⚙️ Beluga Control Panel",
-            description="กดปุ่มเพื่อเปิด/ปิดแต่ละระบบสำหรับเซิร์ฟเวอร์นี้",
-            color=discord.Color.blurple(),
+            title="🕹️ Anyaluga Control Panel",
+            description=f"กดปุ่มเพื่อเปิด/ปิดแต่ละระบบสำหรับเซิร์ฟเวอร์นี้\n{brand_style.DIVIDER}",
+            color=brand_style.DEFAULT_COLOR,
         )
+        if interaction.guild.icon:
+            embed.set_thumbnail(url=interaction.guild.icon.url)
+        embed.set_footer(text=f"{brand_style.SYSTEM_ICON['panel']} {brand_style.BRAND}")
         view = TogglePanelView(interaction.guild_id, cfg["systems_enabled"])
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 

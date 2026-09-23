@@ -9,6 +9,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import db
+import style
 from checks import require_permission
 
 TYPE_LABELS = {"image": "🖼️ รูปภาพ", "font": "🔤 ฟอนต์", "config": "📄 Config/Text"}
@@ -68,8 +69,8 @@ class Assets(commands.Cog):
         total_kb = sum(a["length"] for a in assets) / 1024
         embed = discord.Embed(
             title="📁 คลังไฟล์",
-            description=f"ทั้งหมด **{len(assets)} ไฟล์** • รวม **{total_kb:.1f} KB**",
-            color=discord.Color.blurple(),
+            description=f"ทั้งหมด **{len(assets)} ไฟล์** • รวม **{total_kb:.1f} KB**\n{style.DIVIDER}",
+            color=style.DEFAULT_COLOR,
         )
         if interaction.guild.icon:
             embed.set_thumbnail(url=interaction.guild.icon.url)
@@ -83,7 +84,7 @@ class Assets(commands.Cog):
                 for a in items
             )
             embed.add_field(name=f"{label} ({len(items)})", value=value, inline=False)
-        embed.set_footer(text="ใช้ /asset-delete พร้อม ID เพื่อลบไฟล์")
+        embed.set_footer(text=f"{style.SYSTEM_ICON['assets']} {style.BRAND} • ใช้ /asset-delete พร้อม ID เพื่อลบไฟล์")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(name="asset-delete", description="ลบไฟล์ที่อัปโหลดไว้ (แอดมินเท่านั้น)")

@@ -17,6 +17,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import db
+import style
 from checks import require_permission
 from cogs.font import load_font_bytes
 from cogs.welcome import (
@@ -36,6 +37,7 @@ def build_goodbye_embed(cfg: dict, member: discord.Member) -> discord.Embed:
     if cfg.get("image_url"):
         embed.set_image(url=cfg["image_url"])
     embed.set_thumbnail(url=member.display_avatar.url)
+    embed.set_footer(text=f"{style.SYSTEM_ICON['goodbye']} {style.BRAND}")
     return embed
 
 

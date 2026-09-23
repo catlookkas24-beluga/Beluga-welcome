@@ -8,6 +8,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import db
+import style
 from checks import require_permission
 from cogs.autorole import sync_guild_roles
 from cogs.welcome import build_welcome_embed
@@ -26,7 +27,9 @@ class Force(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         granted = await sync_guild_roles(interaction.guild)
         await interaction.followup.send(
-            f"✅ ซิงก์ยศเสร็จแล้ว — แจกยศเพิ่มให้ **{granted} คน**", ephemeral=True
+            embed=style.success(f"ซิงก์ยศเสร็จแล้ว — แจกยศเพิ่มให้ **{granted} คน**",
+                                 title="Force Sync สำเร็จ", system="force"),
+            ephemeral=True,
         )
 
     @app_commands.command(
@@ -48,7 +51,9 @@ class Force(commands.Cog):
         embed = build_welcome_embed(cfg["welcome"], interaction.user)
         await interaction.channel.send(embed=embed)
         await interaction.followup.send(
-            f"✅ ลบข้อความเก่าไป {deleted} ข้อความ และโพสต์เวอร์ชันล่าสุดทับแล้ว", ephemeral=True
+            embed=style.success(f"ลบข้อความเก่าไป **{deleted} ข้อความ** และโพสต์เวอร์ชันล่าสุดทับแล้ว",
+                                 title="Force Overwrite สำเร็จ", system="force"),
+            ephemeral=True,
         )
 
     @app_commands.command(
@@ -59,16 +64,21 @@ class Force(commands.Cog):
     async def force_reset_config(self, interaction: discord.Interaction, confirm: bool):
         if not confirm:
             await interaction.response.send_message(
-                "⚠️ คำสั่งนี้จะ**ล้างการตั้งค่าทั้งหมด**ของเซิร์ฟนี้กลับเป็นค่าเริ่มต้น "
-                "(welcome, verify, rules, antiraid, autorole) — ถ้าต้องการจริง ๆ "
-                "พิมพ์คำสั่งเดิมอีกครั้งพร้อมใส่ `confirm: True`",
+                embed=style.warn(
+                    "คำสั่งนี้จะ**ล้างการตั้งค่าทั้งหมด**ของเซิร์ฟนี้กลับเป็นค่าเริ่มต้น\n"
+                    f"{style.DIVIDER}\n(welcome, verify, rules, antiraid, autorole)\n\n"
+                    "ถ้าต้องการจริง ๆ พิมพ์คำสั่งเดิมอีกครั้งพร้อมใส่ `confirm: True`",
+                    title="ยืนยันก่อนคืนค่าโรงงาน", system="force",
+                ),
                 ephemeral=True,
             )
             return
         await db.reset_guild_config(interaction.guild_id)
         await interaction.response.send_message(
-            "🔄 คืนค่าโรงงานเรียบร้อยแล้ว ทุกระบบกลับไปเป็นค่าเริ่มต้น "
-            "(ไฟล์ asset ที่อัปโหลดไว้ยังอยู่ครบ ไม่ถูกลบ)",
+            embed=style.success(
+                "ทุกระบบกลับไปเป็นค่าเริ่มต้นแล้ว\n(ไฟล์ asset ที่อัปโหลดไว้ยังอยู่ครบ ไม่ถูกลบ)",
+                title="คืนค่าโรงงานเรียบร้อย", system="force",
+            ),
             ephemeral=True,
         )
 

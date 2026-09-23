@@ -10,16 +10,20 @@ from discord import app_commands
 from discord.ext import commands
 
 import db
+import style
 from checks import require_permission
 from cogs.welcome import render_variables, parse_hex_color
 
 
 def build_ticket_panel_embed(cfg: dict) -> discord.Embed:
-    return discord.Embed(
+    embed = discord.Embed(
         title=cfg.get("title", "🎫 เปิดตั๋วขอความช่วยเหลือ"),
-        description=cfg.get("description", "กดปุ่มด้านล่างเพื่อเปิดห้องส่วนตัวคุยกับทีมงาน"),
+        description=cfg.get("description", "กดปุ่มด้านล่างเพื่อเปิดห้องส่วนตัวคุยกับทีมงาน")
+        + f"\n{style.DIVIDER}",
         color=parse_hex_color(cfg.get("color", "#5865f2")),
     )
+    embed.set_footer(text=f"{style.SYSTEM_ICON['ticket']} {style.BRAND} • ทีมงานจะเห็นตั๋วที่คุณเปิดเท่านั้น")
+    return embed
 
 
 class TicketPanelView(discord.ui.View):
@@ -102,8 +106,10 @@ class TicketPanelView(discord.ui.View):
             use_mention=True,
         )
         embed = discord.Embed(
-            title="🎫 ตั๋วนี้เปิดแล้ว", description=welcome_text, color=discord.Color.blurple()
+            title="🎫 ตั๋วนี้เปิดแล้ว", description=f"{welcome_text}\n{style.DIVIDER}", color=discord.Color.blurple()
         )
+        embed.set_thumbnail(url=member.display_avatar.url)
+        embed.set_footer(text=f"{style.SYSTEM_ICON['ticket']} {style.BRAND} • เปิดโดย {member.display_name}")
         await channel.send(embed=embed, view=TicketCloseView())
 
         await interaction.followup.send(f"✅ เปิดตั๋วแล้วที่ {channel.mention}", ephemeral=True)

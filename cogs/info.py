@@ -39,11 +39,12 @@ from discord import app_commands
 from discord.ext import commands
 
 import db
+import style
 
 log = logging.getLogger("beluga")
 
 BOT_NAME = "Anyaluga"
-BOT_TAGLINE = "บอทดูแลเซิร์ฟเวอร์ Beluga — ต้อนรับ/ยืนยันตัวตน/ระบบความปลอดภัย/เพลง และอื่นๆ"
+BOT_TAGLINE = "✨ บอทดูแลเซิร์ฟเวอร์ครบวงจร — ต้อนรับ/ยืนยันตัวตน/ระบบความปลอดภัย/เพลง และอื่นๆ"
 
 # แสดงกี่รายการล่าสุดใน /info (ดูทั้งหมดได้ที่ /info-list-changelog)
 CHANGELOG_PREVIEW_COUNT = 3
@@ -354,8 +355,8 @@ class Info(commands.Cog):
 
         embed = discord.Embed(
             title=f"ℹ️ {BOT_NAME} — ข้อมูลบอท",
-            description=BOT_TAGLINE,
-            color=0x5865F2,
+            description=f"{BOT_TAGLINE}\n{style.DIVIDER}",
+            color=style.DEFAULT_COLOR,
         )
         if bot_user.display_avatar:
             embed.set_thumbnail(url=bot_user.display_avatar.url)
@@ -399,7 +400,7 @@ class Info(commands.Cog):
                 recent += f"\n-# และอีก {more} รายการ — ดูทั้งหมดที่ /info-list-changelog"
             embed.add_field(name="📜 Changelog ล่าสุด", value=recent, inline=False)
 
-        embed.set_footer(text=f"discord.py {discord.__version__} · Python {platform.python_version()} · กด 🔴 เพื่อดูสถานะสดทุก {LIVE_UPDATE_INTERVAL} วิ")
+        embed.set_footer(text=f"ℹ️ {BOT_NAME} · discord.py {discord.__version__} · Python {platform.python_version()} · กด 🔴 เพื่อดูสถานะสดทุก {LIVE_UPDATE_INTERVAL} วิ")
         embed.timestamp = datetime.now(timezone.utc)
 
         field_indices = {
@@ -431,12 +432,21 @@ class Info(commands.Cog):
         meta = await db.get_bot_meta()
         changelog = meta["changelog"]
         if not changelog:
-            await interaction.response.send_message("ยังไม่มี changelog เลยครับ ลองเพิ่มด้วย `/info-edit`")
+            await interaction.response.send_message(
+                embed=style.brand_embed(
+                    title="📜 Changelog",
+                    description="ยังไม่มี changelog เลยครับ ลองเพิ่มด้วย `/info-edit`",
+                    system="info",
+                )
+            )
             return
         lines = [f"`{i}` — {entry}" for i, entry in enumerate(changelog)]
-        embed = discord.Embed(title="📜 Changelog ทั้งหมด", description="\n".join(lines[:25]), color=0x5865F2)
-        if len(lines) > 25:
-            embed.set_footer(text=f"แสดง 25 จากทั้งหมด {len(lines)} รายการ")
+        embed = style.brand_embed(
+            title="📜 Changelog ทั้งหมด",
+            description=f"{style.DIVIDER}\n" + "\n".join(lines[:25]),
+            system="info",
+            footer_extra=(f"แสดง 25 จากทั้งหมด {len(lines)} รายการ" if len(lines) > 25 else None),
+        )
         await interaction.response.send_message(embed=embed)
 
 

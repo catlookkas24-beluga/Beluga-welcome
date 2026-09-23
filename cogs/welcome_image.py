@@ -14,6 +14,7 @@ from discord.ext import commands
 from PIL import Image, ImageDraw, ImageFont
 
 import db
+import style
 from cogs.font import load_font_bytes, font_autocomplete, parse_hex_color
 from cogs.welcome import render_variables
 
@@ -240,7 +241,8 @@ class WelcomeImage(commands.Cog):
                 "⚠️ เรนเดอร์ไม่สำเร็จ เช็คว่าตั้งฟอนต์/รูปถูกต้องหรือยัง", ephemeral=True
             )
             return
-        embed = discord.Embed(title="🖼️ ตัวอย่าง Welcome Image", color=discord.Color.blurple())
+        embed = discord.Embed(title="🖼️ ตัวอย่าง Welcome Image", color=style.DEFAULT_COLOR)
+        embed.set_footer(text=f"{style.SYSTEM_ICON['welcome']} {style.BRAND}")
         embed.set_image(url="attachment://welcome_composite.png")
         await interaction.followup.send(embed=embed, file=file, ephemeral=True)
 

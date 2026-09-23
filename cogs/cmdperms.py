@@ -11,6 +11,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import db
+import style
 
 
 async def command_name_autocomplete(
@@ -206,8 +207,8 @@ class CommandPermissions(commands.Cog):
         total_roles = len({rid for roles in active_perms.values() for rid in roles})
         embed = discord.Embed(
             title="🔑 สิทธิ์คำสั่งที่ตั้งไว้",
-            description=f"**{len(active_perms)} คำสั่ง** ปลดล็อกให้รวม **{total_roles} ยศ**",
-            color=discord.Color.blurple(),
+            description=f"**{len(active_perms)} คำสั่ง** ปลดล็อกให้รวม **{total_roles} ยศ**\n{style.DIVIDER}",
+            color=style.DEFAULT_COLOR,
         )
         if interaction.guild.icon:
             embed.set_thumbnail(url=interaction.guild.icon.url)
@@ -215,7 +216,7 @@ class CommandPermissions(commands.Cog):
         for cmd_name, role_ids in active_perms.items():
             mentions = ", ".join(f"<@&{rid}>" for rid in role_ids)
             embed.add_field(name=f"⚙️ /{cmd_name}", value=mentions, inline=False)
-        embed.set_footer(text="ใช้ /cmdperm-revoke เพื่อเอาสิทธิ์ออก")
+        embed.set_footer(text=f"{style.SYSTEM_ICON['cmdperms']} {style.BRAND} • ใช้ /cmdperm-revoke เพื่อเอาสิทธิ์ออก")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 

@@ -12,6 +12,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import db
+import style
 from checks import require_permission
 
 
@@ -21,12 +22,12 @@ class AntiRaid(commands.Cog):
         # เก็บ timestamp การ join ล่าสุดของแต่ละ guild ไว้ในหน่วยความจำ (guild_id -> deque[datetime])
         self.join_windows: dict[int, deque] = {}
 
-    async def alert(self, guild: discord.Guild, channel_id, message: str):
+    async def alert(self, guild: discord.Guild, channel_id, embed: discord.Embed):
         if not channel_id:
             return
         channel = guild.get_channel(channel_id)
         if channel:
-            await channel.send(message)
+            await channel.send(embed=embed)
 
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
@@ -40,7 +41,10 @@ class AntiRaid(commands.Cog):
             await self.alert(
                 member.guild,
                 cfg.get("alert_channel_id"),
-                f"🚩 บัญชีใหม่: {member.mention} สร้างบัญชีมาแค่ {account_age_days} วัน",
+                style.warn(
+                    f"{member.mention} สร้างบัญชีมาแค่ **{account_age_days} วัน**",
+                    title="🚩 บัญชีใหม่", system="antiraid",
+                ),
             )
 
         # --- เช็ค raid (join ถี่ผิดปกติ) ---
@@ -55,8 +59,10 @@ class AntiRaid(commands.Cog):
             await self.alert(
                 member.guild,
                 cfg.get("alert_channel_id"),
-                f"🛡️ **แจ้งเตือน Raid**: มีคนเข้าเซิร์ฟ {len(window)} คน "
-                f"ภายใน {window_seconds} วินาที กรุณาตรวจสอบ",
+                style.error(
+                    f"มีคนเข้าเซิร์ฟ **{len(window)} คน** ภายใน **{window_seconds} วินาที** กรุณาตรวจสอบ",
+                    title="🛡️ แจ้งเตือน Raid", system="antiraid",
+                ),
             )
 
     @app_commands.command(
@@ -88,8 +94,11 @@ class AntiRaid(commands.Cog):
             },
         )
         await interaction.response.send_message(
-            f"✅ ตั้งค่าแล้ว: เกิน {join_threshold} คนใน {window_seconds} วิ จะแจ้งเตือน, "
-            f"flag บัญชีอายุน้อยกว่า {min_account_age_days} วัน ที่ห้อง {alert_channel.mention}",
+            embed=style.success(
+                f"เกิน **{join_threshold} คน** ใน **{window_seconds} วิ** จะแจ้งเตือน\n"
+                f"flag บัญชีอายุน้อยกว่า **{min_account_age_days} วัน** ที่ห้อง {alert_channel.mention}",
+                title="ตั้งค่า Anti-Raid แล้ว", system="antiraid",
+            ),
             ephemeral=True,
         )
 

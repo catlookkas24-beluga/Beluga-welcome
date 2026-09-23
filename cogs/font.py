@@ -13,6 +13,7 @@ from discord.ext import commands
 from PIL import Image, ImageDraw, ImageFont
 
 import db
+import style
 
 FONTS_DIR = os.path.join(os.path.dirname(__file__), "..", "fonts")
 
@@ -131,7 +132,7 @@ class Font(commands.Cog):
                 value="_ยังไม่มี — ใช้ `/asset-upload` เพื่ออัปโหลดไฟล์ .ttf/.otf_",
                 inline=False,
             )
-        embed.set_footer(text="🇹🇭 = รองรับภาษาไทย  •  ใช้ /font-preview เพื่อดูตัวอย่างจริง")
+        embed.set_footer(text=f"{style.SYSTEM_ICON['font']} {style.BRAND} • 🇹🇭 = รองรับภาษาไทย  •  ใช้ /font-preview เพื่อดูตัวอย่างจริง")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(name="font-preview", description="ดูตัวอย่างข้อความด้วยฟอนต์ที่เลือก")
@@ -174,10 +175,11 @@ class Font(commands.Cog):
             return
 
         file = discord.File(io.BytesIO(image_bytes), filename="font_preview.png")
-        embed = discord.Embed(
+        embed = style.brand_embed(
             title="🔤 ตัวอย่างฟอนต์",
-            description=f"ฟอนต์: **{font_label}**",
-            color=discord.Color.gold(),
+            description=f"ฟอนต์: **{font_label}**\n{style.DIVIDER}",
+            color=0xF1C40F,
+            system="font",
         )
         embed.set_image(url="attachment://font_preview.png")
         await interaction.followup.send(embed=embed, file=file)

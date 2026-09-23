@@ -36,6 +36,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import db
+import style as brand_style
 
 log = logging.getLogger("beluga")
 
@@ -439,6 +440,126 @@ class EQView(discord.ui.View):
         self.add_item(EQTrebleDownButton(music_cog, guild_id))
         self.add_item(EQTrebleUpButton(music_cog, guild_id))
         self.add_item(EQResetButton(music_cog, guild_id))
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+
+
+# ============================================================================
+# 🎨 Interactive Theme Menu (Select + Custom Hex Modal)
+# ============================================================================
+
+THEME_EMOJI: dict[str, str] = {
+    "blurple": "🔵",
+    "แดง": "🟥",
+    "ส้ม": "🟧",
+    "เหลือง": "🟨",
+    "เขียว": "🟩",
+    "ฟ้า": "🟦",
+    "ม่วง": "🟪",
+    "ชมพู": "🩷",
+    "ขาว": "⬜",
+    "ดำ": "⬛",
+}
+
+
+def build_theme_embed(color: int) -> discord.Embed:
+    """สร้าง embed พรีวิวสีธีมปัจจุบัน — ใช้สีจริงเป็นแถบสีของ embed เอง"""
+    hex_code = f"#{color:06X}"
+    preset_name = next(
+        (name for name, value in THEME_PRESETS.items() if value == color), None
+    )
+    label = f"{THEME_EMOJI.get(preset_name, '🎨')} **{preset_name}**" if preset_name else "🎨 **สีกำหนดเอง**"
+
+    embed = discord.Embed(
+        title="🎨 Theme Menu",
+        description=f"{label}\nโค้ดสี: `{hex_code}`\n{brand_style.DIVIDER}\nสีนี้จะใช้กับ embed เพลงทั้งหมด (Now Playing, Queue, EQ ฯลฯ)",
+        color=color,
+    )
+    embed.set_footer(text="เลือกจาก dropdown ด้านล่าง หรือกด \"สีกำหนดเอง\" เพื่อใส่ hex code")
+    return embed
+
+
+class ThemeSelect(discord.ui.Select):
+    def __init__(self, music_cog: "Music", guild_id: int):
+        options = [
+            discord.SelectOption(label=name, emoji=THEME_EMOJI.get(name, "🎨"), value=name)
+            for name in THEME_PRESETS.keys()
+        ]
+        super().__init__(
+            placeholder="🎨 เลือกสีธีมจากพรีเซ็ต...",
+            options=options,
+            min_values=1,
+            max_values=1,
+        )
+        self.music_cog = music_cog
+        self.guild_id = guild_id
+
+    async def callback(self, interaction: discord.Interaction):
+        state = self.music_cog.get_state(self.guild_id)
+        state.color = THEME_PRESETS[self.values[0]]
+        await interaction.response.edit_message(embed=build_theme_embed(state.color), view=self.view)
+
+
+class ThemeCustomHexModal(discord.ui.Modal, title="ใส่สีกำหนดเอง"):
+    hex_input = discord.ui.TextInput(
+        label="Hex code (ไม่ต้องใส่ #)",
+        placeholder="เช่น ff8800",
+        min_length=6,
+        max_length=7,
+    )
+
+    def __init__(self, music_cog: "Music", guild_id: int, view: "ThemeView"):
+        super().__init__()
+        self.music_cog = music_cog
+        self.guild_id = guild_id
+        self.theme_view = view
+
+    async def on_submit(self, interaction: discord.Interaction):
+        parsed = parse_color(self.hex_input.value)
+        if parsed is None:
+            await interaction.response.send_message(
+                "⛔ ใส่สีไม่ถูกต้องครับ — พิมพ์ hex code 6 หลัก เช่น `ff8800`", ephemeral=True
+            )
+            return
+        state = self.music_cog.get_state(self.guild_id)
+        state.color = parsed
+        await interaction.response.edit_message(embed=build_theme_embed(state.color), view=self.theme_view)
+
+
+class ThemeCustomButton(discord.ui.Button):
+    def __init__(self, music_cog: "Music", guild_id: int):
+        super().__init__(label="สีกำหนดเอง", style=discord.ButtonStyle.primary, emoji="🖌️", row=1)
+        self.music_cog = music_cog
+        self.guild_id = guild_id
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.send_modal(
+            ThemeCustomHexModal(self.music_cog, self.guild_id, self.view)
+        )
+
+
+class ThemeResetButton(discord.ui.Button):
+    def __init__(self, music_cog: "Music", guild_id: int):
+        super().__init__(label="รีเซ็ตเป็น Blurple", style=discord.ButtonStyle.secondary, emoji="🔄", row=1)
+        self.music_cog = music_cog
+        self.guild_id = guild_id
+
+    async def callback(self, interaction: discord.Interaction):
+        state = self.music_cog.get_state(self.guild_id)
+        state.color = DEFAULT_COLOR
+        await interaction.response.edit_message(embed=build_theme_embed(state.color), view=self.view)
+
+
+class ThemeView(discord.ui.View):
+    """เมนูตั้งสีธีมแบบ interactive — เลือกพรีเซ็ตจาก dropdown หรือใส่ hex เองผ่าน modal"""
+
+    def __init__(self, music_cog: "Music", guild_id: int):
+        super().__init__(timeout=180)
+        self.add_item(ThemeSelect(music_cog, guild_id))
+        self.add_item(ThemeCustomButton(music_cog, guild_id))
+        self.add_item(ThemeResetButton(music_cog, guild_id))
 
     async def on_timeout(self):
         for item in self.children:
@@ -1205,6 +1326,13 @@ class Music(commands.Cog):
         state.color = parsed
         embed = discord.Embed(description="🎨 ตั้งสีธีมใหม่เรียบร้อยแล้วครับ ดูตัวอย่างสีนี้ได้เลย", color=parsed)
         await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(name="thememenu", description="เปิดเมนูตั้งสีธีมแบบ interactive เลือก/ใส่ hex เองได้เลย")
+    async def thememenu(self, interaction: discord.Interaction):
+        state = self.get_state(interaction.guild_id)
+        embed = build_theme_embed(state.color)
+        view = ThemeView(self, interaction.guild_id)
+        await interaction.response.send_message(embed=embed, view=view)
 
     # ---------- Volume & Voice Control ----------
 

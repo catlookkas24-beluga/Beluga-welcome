@@ -9,6 +9,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import db
+import style
 from checks import require_permission
 
 
@@ -23,6 +24,7 @@ def build_rules_embed(cfg: dict) -> discord.Embed:
     )
     if cfg.get("rank_text"):
         embed.add_field(name="🏅 เงื่อนไขการเลื่อนยศ", value=cfg["rank_text"], inline=False)
+    embed.set_footer(text=f"{style.SYSTEM_ICON['rules']} {style.BRAND} • อัปเดตอัตโนมัติเมื่อแอดมินแก้ไข")
     return embed
 
 

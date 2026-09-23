@@ -13,6 +13,7 @@ from discord.ext import commands
 from PIL import Image, ImageDraw, ImageFont
 
 import db
+import style
 
 CHART_FONT_PATH = os.path.join(os.path.dirname(__file__), "..", "fonts", "mali.ttf")
 
@@ -190,9 +191,10 @@ class Activity(commands.Cog):
             embed.add_field(name="📌 ห้องที่ใช้บ่อยสุด", value="\n".join(lines), inline=False)
 
         embed.set_footer(
-            text=f"เข้าร่วมเซิร์ฟเมื่อ {target.joined_at.strftime('%d/%m/%Y') if target.joined_at else 'ไม่ทราบ'} • "
+            text=f"📊 {style.BRAND} • เข้าร่วมเซิร์ฟเมื่อ {target.joined_at.strftime('%d/%m/%Y') if target.joined_at else 'ไม่ทราบ'} • "
             f"สร้างบัญชีเมื่อ {target.created_at.strftime('%d/%m/%Y')}"
         )
+        embed.timestamp = datetime.now(timezone.utc)
 
         try:
             chart_bytes = render_activity_chart(daily_series)
@@ -214,7 +216,11 @@ class Activity(commands.Cog):
         await interaction.response.defer()
         top = await db.get_leaderboard(interaction.guild_id, metric.value, limit=10)
         if not top:
-            await interaction.followup.send("ยังไม่มีข้อมูลสถิติเลยครับ")
+            await interaction.followup.send(embed=style.brand_embed(
+                title="🏆 Leaderboard",
+                description="ยังไม่มีข้อมูลสถิติเลยครับ",
+                system="activity",
+            ))
             return
 
         medals = ["🥇", "🥈", "🥉"]
@@ -224,10 +230,12 @@ class Activity(commands.Cog):
             value_text = format_hours(value) if metric.value == "total_voice_seconds" else f"{value} ข้อความ"
             lines.append(f"{prefix} <@{user_id}> — **{value_text}**")
 
-        embed = discord.Embed(
+        embed = style.brand_embed(
             title=f"🏆 Leaderboard — {metric.name}",
-            description="\n".join(lines),
-            color=discord.Color.gold(),
+            description=f"{style.DIVIDER}\n" + "\n".join(lines),
+            color=0xF1C40F,
+            system="activity",
+            thumbnail=interaction.guild.icon.url if interaction.guild.icon else None,
         )
         await interaction.followup.send(embed=embed)
 
