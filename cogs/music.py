@@ -28,6 +28,7 @@ import os
 import subprocess
 import shutil
 import tempfile
+import time
 from typing import Optional
 
 import discord
@@ -221,13 +222,21 @@ def make_bar(value: int, min_val: int = -10, max_val: int = 20, length: int = 10
 # ============================================================================
 
 class QueueItem:
-    __slots__ = ("title", "url", "requester", "thumbnail")
+    __slots__ = ("title", "url", "requester", "thumbnail", "duration")
 
-    def __init__(self, title: str, url: str, requester: discord.Member, thumbnail: Optional[str] = None):
+    def __init__(
+        self,
+        title: str,
+        url: str,
+        requester: discord.Member,
+        thumbnail: Optional[str] = None,
+        duration: Optional[float] = None,
+    ):
         self.title = title
         self.url = url
         self.requester = requester
         self.thumbnail = thumbnail
+        self.duration = duration
 
 
 class AudioFilter:
@@ -268,12 +277,23 @@ class AudioFilter:
 class GuildMusicState:
     def __init__(self):
         self.queue: list[QueueItem] = []
+        self.history: list[QueueItem] = []
         self.current: Optional[QueueItem] = None
         self.volume: float = 0.5
         self.audio_filter = AudioFilter()
         self.voice_client: Optional[discord.VoiceClient] = None
         self.text_channel: Optional[discord.abc.Messageable] = None
         self.color: int = DEFAULT_COLOR
+
+        # 🎵 Now Playing control panel state
+        self.panel_message: Optional[discord.Message] = None
+        self.panel_task: Optional[asyncio.Task] = None
+        self.started_at: Optional[float] = None
+        self.paused_at: Optional[float] = None
+        self.paused_total: float = 0.0
+        self.repeat: str = "off"  # off / one / all
+        self.shuffle: bool = False
+        self.favorites: set[str] = set()
 
     def build_ffmpeg_options(self) -> dict:
         before_parts = [f"-{key} {val}" for key, val in FFMPEG_OPTIONS.items()]
@@ -426,6 +446,244 @@ class EQView(discord.ui.View):
 
 
 # ============================================================================
+# 🎵 Now Playing Control Panel
+# ============================================================================
+
+def _format_time(seconds: Optional[float]) -> str:
+    if seconds is None or seconds < 0:
+        return "--:--"
+    seconds = int(seconds)
+    hours, rem = divmod(seconds, 3600)
+    minutes, secs = divmod(rem, 60)
+    if hours:
+        return f"{hours}:{minutes:02d}:{secs:02d}"
+    return f"{minutes}:{secs:02d}"
+
+
+def _progress_bar(elapsed: float, duration: Optional[float], length: int = 24) -> str:
+    if not duration or duration <= 0:
+        return "🔘" + "─" * (length - 1)
+    ratio = max(0.0, min(1.0, elapsed / duration))
+    filled = max(0, min(length, round(ratio * length)))
+    return "━" * filled + "●" + "─" * max(0, length - filled - 1)
+
+
+def get_panel_elapsed(state: GuildMusicState) -> float:
+    if state.started_at is None:
+        return 0.0
+    now = time.monotonic()
+    paused_total = state.paused_total
+    if state.paused_at is not None:
+        paused_total += max(0.0, now - state.paused_at)
+    return max(0.0, now - state.started_at - paused_total)
+
+
+def build_music_panel_embed(state: GuildMusicState) -> discord.Embed:
+    """สร้าง Now Playing panel ให้หน้าตาใกล้เคียงตัวอย่างที่ส่งมา"""
+    if state.current is None:
+        embed = discord.Embed(
+            title="🎵 Now Playing",
+            description="ไม่มีเพลงกำลังเล่นอยู่\nใช้ `/play` เพื่อเริ่มเพลง",
+            color=state.color,
+        )
+        embed.set_footer(text="Beluga Music • Audio Library")
+        return embed
+
+    item = state.current
+    elapsed = get_panel_elapsed(state)
+    duration = item.duration
+
+    if state.voice_client and state.voice_client.is_paused():
+        status = "⏸️ Paused"
+    elif state.voice_client and state.voice_client.is_playing():
+        status = "▶️ Playing"
+    else:
+        status = "⏹️ Stopped"
+
+    progress = _progress_bar(elapsed, duration)
+    time_text = f"{_format_time(elapsed)} / {_format_time(duration)}"
+
+    embed = discord.Embed(
+        title="🎵 Now Playing",
+        description=(
+            f"**{status}** • 🎧 **Audio Library**\n"
+            f"## {item.title}\n"
+            f"👤 ขอโดย {item.requester.mention}\n\n"
+            f"`{progress}`\n"
+            f"`{time_text}`"
+        ),
+        color=state.color,
+    )
+
+    if item.thumbnail:
+        embed.set_thumbnail(url=item.thumbnail)
+
+    preset_data = EQ_PRESETS[state.audio_filter.preset]
+    repeat_label = {"off": "ปิด", "one": "เพลงนี้", "all": "ทั้งหมด"}.get(state.repeat, "ปิด")
+    shuffle_label = "เปิด" if state.shuffle else "ปิด"
+    favorite_label = "❤️ ถูกใจแล้ว" if item.url in state.favorites else "♡ ถูกใจ"
+
+    embed.add_field(
+        name="🎚️ Audio",
+        value=(
+            f"🔊 **{round(state.volume * 100)}%**  •  "
+            f"🎛️ **{preset_data['label']}**\n"
+            f"🔁 **{repeat_label}**  •  🔀 **{shuffle_label}**"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="📋 Queue",
+        value=f"**{len(state.queue)}** เพลงรออยู่",
+        inline=True,
+    )
+    embed.add_field(
+        name="❤️ Favorite",
+        value=favorite_label,
+        inline=True,
+    )
+    embed.set_footer(text="Beluga Music • ใช้ปุ่มด้านล่างควบคุมเพลงได้ทันที")
+    return embed
+
+
+class MusicPanelButton(discord.ui.Button):
+    def __init__(self, label: str, emoji: str, style: discord.ButtonStyle, action: str, row: int):
+        super().__init__(label=label, emoji=emoji, style=style, row=row)
+        self.action = action
+
+    async def callback(self, interaction: discord.Interaction):
+        view: "MusicPanelView" = self.view  # type: ignore
+        await view.handle_action(interaction, self.action)
+
+
+class MusicPanelView(discord.ui.View):
+    """ปุ่ม Now Playing: ⏮️ ⏸️ ⏭️ ⏹️ 🔀 / 🔁 🔉 🔊 📋 ❤️"""
+
+    def __init__(self, music_cog: "Music", guild_id: int):
+        super().__init__(timeout=None)
+        self.music_cog = music_cog
+        self.guild_id = guild_id
+
+        # Row 0
+        self.add_item(MusicPanelButton("ก่อนหน้า", "⏮️", discord.ButtonStyle.secondary, "previous", 0))
+        self.add_item(MusicPanelButton("พัก/เล่นต่อ", "⏸️", discord.ButtonStyle.primary, "pause", 0))
+        self.add_item(MusicPanelButton("ถัดไป", "⏭️", discord.ButtonStyle.secondary, "skip", 0))
+        self.add_item(MusicPanelButton("หยุด", "⏹️", discord.ButtonStyle.danger, "stop", 0))
+        self.add_item(MusicPanelButton("สุ่ม", "🔀", discord.ButtonStyle.secondary, "shuffle", 0))
+
+        # Row 1
+        self.add_item(MusicPanelButton("วนซ้ำ", "🔁", discord.ButtonStyle.secondary, "repeat", 1))
+        self.add_item(MusicPanelButton("เบา", "🔉", discord.ButtonStyle.secondary, "volume_down", 1))
+        self.add_item(MusicPanelButton("ดัง", "🔊", discord.ButtonStyle.secondary, "volume_up", 1))
+        self.add_item(MusicPanelButton("คิว", "📋", discord.ButtonStyle.secondary, "queue", 1))
+        self.add_item(MusicPanelButton("ถูกใจ", "❤️", discord.ButtonStyle.secondary, "favorite", 1))
+
+    async def handle_action(self, interaction: discord.Interaction, action: str):
+        state = self.music_cog.get_state(self.guild_id)
+
+        if action == "pause":
+            if state.voice_client is None:
+                await interaction.response.send_message("⛔ บอทยังไม่ได้อยู่ในห้องเสียงครับ", ephemeral=True)
+                return
+            if state.voice_client.is_playing():
+                state.voice_client.pause()
+                state.paused_at = time.monotonic()
+            elif state.voice_client.is_paused():
+                state.voice_client.resume()
+                if state.paused_at is not None:
+                    state.paused_total += max(0.0, time.monotonic() - state.paused_at)
+                state.paused_at = None
+            else:
+                await interaction.response.send_message("⛔ ไม่มีเพลงกำลังเล่นครับ", ephemeral=True)
+                return
+
+        elif action == "skip":
+            if state.voice_client is None or not (state.voice_client.is_playing() or state.voice_client.is_paused()):
+                await interaction.response.send_message("⛔ ไม่มีเพลงกำลังเล่นครับ", ephemeral=True)
+                return
+            state.voice_client.stop()
+
+        elif action == "stop":
+            state.queue.clear()
+            state.current = None
+            if state.panel_task:
+                state.panel_task.cancel()
+                state.panel_task = None
+            if state.voice_client is not None:
+                await state.voice_client.disconnect()
+                state.voice_client = None
+
+        elif action == "previous":
+            if state.current is None:
+                await interaction.response.send_message("⛔ ไม่มีเพลงปัจจุบันครับ", ephemeral=True)
+                return
+            elapsed = get_panel_elapsed(state)
+            if elapsed > 5:
+                # กดก่อนหน้าระหว่างเพลง = เริ่มเพลงปัจจุบันใหม่
+                if state.voice_client and state.voice_client.is_playing():
+                    state.voice_client.stop()
+                state.queue.insert(0, state.current)
+            elif state.history:
+                previous = state.history.pop()
+                if state.voice_client and (state.voice_client.is_playing() or state.voice_client.is_paused()):
+                    state.voice_client.stop()
+                state.queue.insert(0, state.current)
+                state.queue.insert(0, previous)
+            else:
+                await interaction.response.send_message("⛔ ยังไม่มีเพลงก่อนหน้าครับ", ephemeral=True)
+                return
+
+        elif action == "shuffle":
+            state.shuffle = not state.shuffle
+            if state.shuffle and len(state.queue) > 1:
+                import random
+                random.shuffle(state.queue)
+
+        elif action == "repeat":
+            state.repeat = {"off": "one", "one": "all", "all": "off"}.get(state.repeat, "off")
+
+        elif action == "volume_down":
+            state.volume = max(0.0, round(state.volume - 0.1, 2))
+            if state.voice_client and state.voice_client.source:
+                state.voice_client.source.volume = state.volume
+
+        elif action == "volume_up":
+            state.volume = min(2.0, round(state.volume + 0.1, 2))
+            if state.voice_client and state.voice_client.source:
+                state.voice_client.source.volume = state.volume
+
+        elif action == "queue":
+            if state.queue:
+                lines = [
+                    f"`{i+1:02d}` **{item.title}**"
+                    for i, item in enumerate(state.queue[:10])
+                ]
+                if len(state.queue) > 10:
+                    lines.append(f"...และอีก {len(state.queue) - 10} เพลง")
+                msg = "📋 **คิวเพลง**\n" + "\n".join(lines)
+            else:
+                msg = "📋 **คิวเพลง**\nไม่มีเพลงรออยู่ครับ"
+            await interaction.response.send_message(msg, ephemeral=True)
+            return
+
+        elif action == "favorite":
+            if state.current is None:
+                await interaction.response.send_message("⛔ ไม่มีเพลงปัจจุบันครับ", ephemeral=True)
+                return
+            if state.current.url in state.favorites:
+                state.favorites.remove(state.current.url)
+            else:
+                state.favorites.add(state.current.url)
+
+        await self.music_cog.update_music_panel(self.guild_id)
+        if not interaction.response.is_done():
+            await interaction.response.edit_message(
+                embed=build_music_panel_embed(state),
+                view=self,
+            )
+
+
+# ============================================================================
 # 🎶 Music Cog — Main Controller
 # ============================================================================
 
@@ -449,6 +707,82 @@ class Music(commands.Cog):
             self.states[guild_id] = GuildMusicState()
         return self.states[guild_id]
 
+    async def _probe_duration(self, url: str) -> Optional[float]:
+        """พยายามอ่านความยาวไฟล์เสียงด้วย ffprobe; ถ้าอ่านไม่ได้ให้ None"""
+        ffmpeg_path = FFmpegConfig.get_ffmpeg_path()
+        if not ffmpeg_path:
+            return None
+
+        probe_path = os.environ.get("FFPROBE_PATH")
+        if not probe_path:
+            candidate = os.path.join(os.path.dirname(ffmpeg_path), "ffprobe")
+            probe_path = candidate if os.path.isfile(candidate) else "ffprobe"
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                probe_path,
+                "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                url,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=8)
+            if proc.returncode == 0:
+                value = float(stdout.decode().strip())
+                return value if value > 0 else None
+        except (asyncio.TimeoutError, ValueError, FileNotFoundError, OSError):
+            pass
+        return None
+
+    async def update_music_panel(self, guild_id: int):
+        state = self.get_state(guild_id)
+        if state.text_channel is None:
+            return
+
+        embed = build_music_panel_embed(state)
+        view = MusicPanelView(self, guild_id)
+
+        try:
+            if state.panel_message is not None:
+                await state.panel_message.edit(embed=embed, view=view)
+                return
+        except (discord.NotFound, discord.HTTPException):
+            state.panel_message = None
+
+        try:
+            state.panel_message = await state.text_channel.send(embed=embed, view=view)
+        except discord.HTTPException as exc:
+            log.warning("[music] ส่ง Now Playing panel ไม่สำเร็จ: %s", exc)
+
+    async def _panel_loop(self, guild_id: int):
+        """อัปเดต progress bar ทุก 5 วินาที"""
+        try:
+            while True:
+                await asyncio.sleep(5)
+                state = self.get_state(guild_id)
+                if state.current is None or state.panel_message is None:
+                    return
+                try:
+                    await state.panel_message.edit(
+                        embed=build_music_panel_embed(state),
+                        view=MusicPanelView(self, guild_id),
+                    )
+                except discord.NotFound:
+                    state.panel_message = None
+                    return
+                except discord.HTTPException:
+                    pass
+        except asyncio.CancelledError:
+            return
+
+    def _restart_panel_loop(self, guild_id: int):
+        state = self.get_state(guild_id)
+        if state.panel_task and not state.panel_task.done():
+            state.panel_task.cancel()
+        state.panel_task = asyncio.create_task(self._panel_loop(guild_id))
+
     # ---------- Playback Management ----------
 
     def _play_next(self, guild_id: int):
@@ -462,10 +796,26 @@ class Music(commands.Cog):
 
         if not state.queue:
             state.current = None
+            state.started_at = None
+            state.paused_at = None
+            state.paused_total = 0.0
+            if state.panel_task and not state.panel_task.done():
+                state.panel_task.cancel()
+                state.panel_task = None
+            await self.update_music_panel(guild_id)
             return
 
         item = state.queue.pop(0)
+        if state.current is not None:
+            state.history.append(state.current)
+            state.history = state.history[-20:]
         state.current = item
+        state.started_at = time.monotonic()
+        state.paused_at = None
+        state.paused_total = 0.0
+
+        if item.duration is None:
+            item.duration = await self._probe_duration(item.url)
 
         if state.voice_client is None or not state.voice_client.is_connected():
             return
@@ -486,19 +836,19 @@ class Music(commands.Cog):
             def after_playing(error):
                 if error:
                     log.error(f"[music] เล่นเพลงพลาด (guild {guild_id}): {error}")
+
+                # repeat one = ใส่เพลงเดิมกลับเข้าคิว
+                state = self.states.get(guild_id)
+                if state and state.current and state.repeat == "one":
+                    state.queue.insert(0, state.current)
+                elif state and state.current and state.repeat == "all":
+                    state.queue.append(state.current)
+
                 self._play_next(guild_id)
 
             state.voice_client.play(source, after=after_playing)
-            if state.text_channel is not None:
-                preset_data = EQ_PRESETS[state.audio_filter.preset]
-                embed = discord.Embed(
-                    description=f"▶️ กำลังเล่น: **{item.title}**\nขอโดย {item.requester.mention}",
-                    color=state.color,
-                )
-                embed.set_footer(text=f"{preset_data['emoji']} EQ: {preset_data['label']}")
-                if item.thumbnail:
-                    embed.set_thumbnail(url=item.thumbnail)
-                await state.text_channel.send(embed=embed)
+            await self.update_music_panel(guild_id)
+            self._restart_panel_loop(guild_id)
         except Exception as e:
             log.error(f"[music] เกิด error ขณะเล่น: {e}")
             if state.text_channel:
@@ -713,6 +1063,8 @@ class Music(commands.Cog):
             await interaction.response.send_message("⛔ ไม่มีเพลงกำลังเล่นอยู่ครับ", ephemeral=True)
             return
         state.voice_client.pause()
+        state.paused_at = time.monotonic()
+        await self.update_music_panel(interaction.guild_id)
         await interaction.response.send_message("⏸️ พักเพลงไว้แล้วครับ")
 
     @app_commands.command(name="resume", description="เล่นเพลงที่พักไว้ต่อ")
@@ -722,6 +1074,10 @@ class Music(commands.Cog):
             await interaction.response.send_message("⛔ ไม่มีเพลงที่พักไว้ครับ", ephemeral=True)
             return
         state.voice_client.resume()
+        if state.paused_at is not None:
+            state.paused_total += max(0.0, time.monotonic() - state.paused_at)
+        state.paused_at = None
+        await self.update_music_panel(interaction.guild_id)
         await interaction.response.send_message("▶️ เล่นต่อแล้วครับ")
 
     @app_commands.command(name="stop", description="หยุดเพลง ล้างคิว แล้วออกจากห้องเสียง")
@@ -730,9 +1086,16 @@ class Music(commands.Cog):
         state = self.get_state(interaction.guild_id)
         state.queue.clear()
         state.current = None
+        state.started_at = None
+        state.paused_at = None
+        state.paused_total = 0.0
+        if state.panel_task and not state.panel_task.done():
+            state.panel_task.cancel()
+            state.panel_task = None
         if state.voice_client is not None:
             await state.voice_client.disconnect()
             state.voice_client = None
+        await self.update_music_panel(interaction.guild_id)
         await interaction.followup.send("⏹️ หยุดเพลงและออกจากห้องเสียงแล้วครับ")
 
     @app_commands.command(name="queue", description="ดูคิวเพลงที่รออยู่")
@@ -768,12 +1131,16 @@ class Music(commands.Cog):
     async def nowplaying(self, interaction: discord.Interaction):
         state = self.get_state(interaction.guild_id)
         if state.current is None:
-            await interaction.response.send_message("⛔ ไม่มีเพลงเล่นอยู่ครับ", ephemeral=True)
+            await interaction.response.send_message(
+                embed=build_music_panel_embed(state),
+                view=MusicPanelView(self, interaction.guild_id),
+            )
             return
-        embed = discord.Embed(description=f"🎶 กำลังเล่น: **{state.current.title}**", color=state.color)
-        if state.current.thumbnail:
-            embed.set_thumbnail(url=state.current.thumbnail)
-        await interaction.response.send_message(embed=embed)
+
+        await interaction.response.send_message(
+            embed=build_music_panel_embed(state),
+            view=MusicPanelView(self, interaction.guild_id),
+        )
 
     # ---------- EQ Commands ----------
 
@@ -859,6 +1226,10 @@ class Music(commands.Cog):
         await interaction.response.defer()
         await state.voice_client.disconnect()
         state.voice_client = None
+        if state.panel_task and not state.panel_task.done():
+            state.panel_task.cancel()
+            state.panel_task = None
+        await self.update_music_panel(interaction.guild_id)
         await interaction.followup.send("👋 ออกจากห้องเสียงแล้วครับ")
 
     @app_commands.command(name="ffmpeginfo", description="ดูข้อมูล FFmpeg ที่ติดตั้ง")
