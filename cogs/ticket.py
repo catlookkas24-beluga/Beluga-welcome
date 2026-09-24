@@ -17,10 +17,10 @@ from cogs.welcome import render_variables, parse_hex_color
 
 def build_ticket_panel_embed(cfg: dict) -> discord.Embed:
     embed = discord.Embed(
-        title=cfg.get("title", "🎫 เปิดตั๋วขอความช่วยเหลือ"),
-        description=cfg.get("description", "กดปุ่มด้านล่างเพื่อเปิดห้องส่วนตัวคุยกับทีมงาน")
+        title=cfg.get("title", "🎫 ต้องการให้ช่วยไหมน้า?"),
+        description=cfg.get("description", "กดปุ่มด้านล่างเพื่อเปิดห้องส่วนตัวคุยกับทีมงานได้เลย 💌")
         + f"\n{style.DIVIDER}",
-        color=parse_hex_color(cfg.get("color", "#5865f2")),
+        color=parse_hex_color(cfg.get("color", "#A5D8FF")),
     )
     embed.set_footer(text=f"{style.SYSTEM_ICON['ticket']} {style.BRAND} • ทีมงานจะเห็นตั๋วที่คุณเปิดเท่านั้น")
     return embed
@@ -47,13 +47,13 @@ class TicketPanelView(discord.ui.View):
         category_id = cfg.get("category_id")
         if not category_id:
             await interaction.followup.send(
-                "⚠️ ยังไม่ได้ตั้งค่าระบบตั๋ว กรุณาแจ้งแอดมินให้ใช้ `/ticket-setup` ก่อน", ephemeral=True
+                embed=style.warn("ยังไม่ได้ตั้งค่าระบบตั๋ว กรุณาแจ้งแอดมินให้ใช้ `/ticket-setup` ก่อน"), ephemeral=True
             )
             return
         category = guild.get_channel(category_id)
         if category is None:
             await interaction.followup.send(
-                "⚠️ หมวดหมู่ตั๋วถูกลบไปแล้ว กรุณาแจ้งแอดมิน", ephemeral=True
+                embed=style.warn("หมวดหมู่ตั๋วถูกลบไปแล้ว กรุณาแจ้งแอดมิน"), ephemeral=True
             )
             return
 
@@ -63,7 +63,7 @@ class TicketPanelView(discord.ui.View):
             existing_channel = guild.get_channel(existing_channel_id)
             if existing_channel:
                 await interaction.followup.send(
-                    f"คุณมีตั๋วที่เปิดอยู่แล้วที่ {existing_channel.mention} ครับ", ephemeral=True
+                    embed=style.info(f"คุณมีตั๋วที่เปิดอยู่แล้วที่ {existing_channel.mention} ครับ"), ephemeral=True
                 )
                 return
             # ห้องถูกลบไปแล้วแต่ record ยังค้าง — ปิด record เก่าแล้วให้เปิดใหม่ได้
@@ -94,25 +94,25 @@ class TicketPanelView(discord.ui.View):
             )
         except discord.Forbidden:
             await interaction.followup.send(
-                "⚠️ บอทไม่มีสิทธิ์สร้างห้อง เช็ค **Manage Channels** ในหมวดหมู่นั้นด้วยครับ", ephemeral=True
+                embed=style.warn("บอทไม่มีสิทธิ์สร้างห้อง เช็ค **Manage Channels** ในหมวดหมู่นั้นด้วยครับ"), ephemeral=True
             )
             return
 
         await db.create_ticket_record(guild.id, channel.id, member.id)
 
         welcome_text = render_variables(
-            cfg.get("welcome_text", "สวัสดีครับ {user} ทีมงานจะเข้ามาช่วยเหลือเร็ว ๆ นี้"),
+            cfg.get("welcome_text", "สวัสดีจ้า {user} 🌸 ทีมงานจะรีบมาช่วยเร็ว ๆ นี้"),
             member,
             use_mention=True,
         )
         embed = discord.Embed(
-            title="🎫 ตั๋วนี้เปิดแล้ว", description=f"{welcome_text}\n{style.DIVIDER}", color=discord.Color.blurple()
+            title="🎫 เปิดตั๋วให้แล้วจ้า ✨", description=f"{welcome_text}\n{style.DIVIDER}", color=discord.Color(style.DEFAULT_COLOR)
         )
         embed.set_thumbnail(url=member.display_avatar.url)
         embed.set_footer(text=f"{style.SYSTEM_ICON['ticket']} {style.BRAND} • เปิดโดย {member.display_name}")
         await channel.send(embed=embed, view=TicketCloseView())
 
-        await interaction.followup.send(f"✅ เปิดตั๋วแล้วที่ {channel.mention}", ephemeral=True)
+        await interaction.followup.send(embed=style.success(f"เปิดตั๋วแล้วที่ {channel.mention}"), ephemeral=True)
 
 
 class TicketCloseView(discord.ui.View):
@@ -137,12 +137,12 @@ class TicketCloseView(discord.ui.View):
         is_admin = interaction.user.guild_permissions.manage_guild
         if not (is_support or is_admin):
             await interaction.response.send_message(
-                "⛔ เฉพาะทีมงานหรือแอดมินเท่านั้นที่ปิดตั๋วได้ครับ", ephemeral=True
+                embed=style.error("เฉพาะทีมงานหรือแอดมินเท่านั้นที่ปิดตั๋วได้ครับ"), ephemeral=True
             )
             return
 
         await interaction.response.send_message(
-            "🔒 ตั๋วนี้ถูกปิดแล้ว ห้องจะถูกลบในอีก 5 วินาที..."
+            embed=style.info("🔒 ตั๋วนี้ถูกปิดแล้ว ห้องจะถูกลบในอีก 5 วินาที...")
         )
         await db.close_ticket_record(interaction.channel_id)
         await asyncio.sleep(5)
@@ -184,8 +184,8 @@ class Ticket(commands.Cog):
             {"category_id": category.id, "support_role_ids": support_role_ids},
         )
         await interaction.response.send_message(
-            f"✅ ตั้งค่าตั๋วแล้ว: หมวดหมู่ **{category.name}**, ยศทีมงาน {support_role.mention} "
-            f"(รวมตอนนี้ {len(support_role_ids)} ยศ) — ใช้ `/ticket-setup` ซ้ำเพื่อเพิ่มยศอื่นได้",
+            embed=style.success(f"ตั้งค่าตั๋วแล้ว: หมวดหมู่ **{category.name}**, ยศทีมงาน {support_role.mention} "
+            f"(รวมตอนนี้ {len(support_role_ids)} ยศ) — ใช้ `/ticket-setup` ซ้ำเพื่อเพิ่มยศอื่นได้"),
             ephemeral=True,
         )
 
@@ -201,7 +201,7 @@ class Ticket(commands.Cog):
         await db.update_guild_section(
             interaction.guild_id, "ticket", {"support_role_ids": support_role_ids}
         )
-        await interaction.response.send_message(f"🗑️ เอา {role.mention} ออกจากทีมงานตั๋วแล้ว", ephemeral=True)
+        await interaction.response.send_message(embed=style.info(f"🗑️ เอา {role.mention} ออกจากทีมงานตั๋วแล้ว"), ephemeral=True)
 
     @app_commands.command(name="ticket-panel", description="โพสต์แผงเปิดตั๋วในห้องนี้ (แอดมินเท่านั้น)")
     @require_permission()
@@ -209,7 +209,7 @@ class Ticket(commands.Cog):
         cfg = await db.get_guild_config(interaction.guild_id)
         if not cfg["ticket"].get("category_id"):
             await interaction.response.send_message(
-                "⚠️ ยังไม่ได้ตั้งค่าระบบตั๋ว ใช้ `/ticket-setup` ก่อน", ephemeral=True
+                embed=style.warn("ยังไม่ได้ตั้งค่าระบบตั๋ว ใช้ `/ticket-setup` ก่อน"), ephemeral=True
             )
             return
         embed = build_ticket_panel_embed(cfg["ticket"])
@@ -217,7 +217,7 @@ class Ticket(commands.Cog):
         await db.update_guild_section(
             interaction.guild_id, "ticket", {"panel_channel_id": interaction.channel_id}
         )
-        await interaction.response.send_message("✅ โพสต์แผงเปิดตั๋วแล้ว", ephemeral=True)
+        await interaction.response.send_message(embed=style.success("โพสต์แผงเปิดตั๋วแล้ว"), ephemeral=True)
 
     @app_commands.command(
         name="ticket-editor", description="แก้ข้อความ/สีของแผงเปิดตั๋วและข้อความต้อนรับในห้องตั๋ว (แอดมินเท่านั้น)"
@@ -247,11 +247,11 @@ class Ticket(commands.Cog):
         if welcome_text is not None:
             updates["welcome_text"] = welcome_text
         if not updates:
-            await interaction.response.send_message("⚠️ ใส่พารามิเตอร์อย่างน้อย 1 อย่าง", ephemeral=True)
+            await interaction.response.send_message(embed=style.warn("ใส่พารามิเตอร์อย่างน้อย 1 อย่าง"), ephemeral=True)
             return
         await db.update_guild_section(interaction.guild_id, "ticket", updates)
         await interaction.response.send_message(
-            f"✅ อัปเดตแล้ว ({len(updates)} รายการ) ใช้ `/ticket-panel` เพื่อโพสต์แผงใหม่ให้เห็นผล",
+            embed=style.success(f"อัปเดตแล้ว ({len(updates)} รายการ) ใช้ `/ticket-panel` เพื่อโพสต์แผงใหม่ให้เห็นผล"),
             ephemeral=True,
         )
 

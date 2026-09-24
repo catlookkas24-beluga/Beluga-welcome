@@ -5,6 +5,7 @@ cogs/welcome_image.py — 🖼️🔤 Welcome Image Composite
 ถ้าเปิดใช้งาน จะแทนที่ "Main Image URL" ของ embed ต้อนรับด้วยรูปที่เรนเดอร์สดนี้แทน
 """
 
+import asyncio
 import io
 
 import discord
@@ -87,7 +88,7 @@ async def _render_with_cfg(cfg: dict, guild_id: int, member: discord.Member) -> 
     text = render_variables(cfg.get("text_template", ""), member, use_mention=False)
     text_color = parse_hex_color(cfg.get("text_color", "#ffffff"))
     try:
-        image_bytes = render_welcome_composite(
+        image_bytes = await asyncio.to_thread(render_welcome_composite, 
             background_bytes,
             avatar_bytes,
             font_bytes,
@@ -125,11 +126,11 @@ class WelcomeImage(commands.Cog):
         asset_type = db.detect_asset_type(image.filename)
         if asset_type != "image":
             await interaction.response.send_message(
-                "⚠️ ต้องเป็นไฟล์รูป .png .jpg .jpeg .webp เท่านั้น", ephemeral=True
+                embed=style.warn("ต้องเป็นไฟล์รูป .png .jpg .jpeg .webp เท่านั้น"), ephemeral=True
             )
             return
         if image.size > db.MAX_ASSET_SIZE_BYTES:
-            await interaction.response.send_message("⚠️ ไฟล์ใหญ่เกิน 5MB", ephemeral=True)
+            await interaction.response.send_message(embed=style.warn("ไฟล์ใหญ่เกิน 5MB"), ephemeral=True)
             return
 
         await interaction.response.defer(ephemeral=True)
@@ -141,7 +142,7 @@ class WelcomeImage(commands.Cog):
             interaction.guild_id, "welcome_image", {"background_asset_id": file_id}
         )
         await interaction.followup.send(
-            "✅ ตั้งรูปพื้นหลังแล้ว ใช้ `/welcome-image-preview` เพื่อดูตัวอย่าง", ephemeral=True
+            embed=style.success("ตั้งรูปพื้นหลังแล้ว ใช้ `/welcome-image-preview` เพื่อดูตัวอย่าง"), ephemeral=True
         )
 
     @app_commands.command(
@@ -195,13 +196,13 @@ class WelcomeImage(commands.Cog):
 
         if not updates:
             await interaction.response.send_message(
-                "⚠️ ใส่พารามิเตอร์อย่างน้อย 1 อย่างที่จะปรับ", ephemeral=True
+                embed=style.warn("ใส่พารามิเตอร์อย่างน้อย 1 อย่างที่จะปรับ"), ephemeral=True
             )
             return
 
         await db.update_guild_section(interaction.guild_id, "welcome_image", updates)
         await interaction.response.send_message(
-            f"✅ อัปเดตค่าแล้ว ({len(updates)} รายการ) ลอง `/welcome-image-preview` ดูผลลัพธ์",
+            embed=style.success(f"อัปเดตค่าแล้ว ({len(updates)} รายการ) ลอง `/welcome-image-preview` ดูผลลัพธ์"),
             ephemeral=True,
         )
 
@@ -214,12 +215,12 @@ class WelcomeImage(commands.Cog):
         cfg = (await db.get_guild_config(interaction.guild_id))["welcome_image"]
         if enabled and not cfg.get("background_asset_id"):
             await interaction.response.send_message(
-                "⚠️ ยังไม่ได้ตั้งรูปพื้นหลัง ใช้ `/welcome-image-set-background` ก่อน", ephemeral=True
+                embed=style.warn("ยังไม่ได้ตั้งรูปพื้นหลัง ใช้ `/welcome-image-set-background` ก่อน"), ephemeral=True
             )
             return
         await db.update_guild_section(interaction.guild_id, "welcome_image", {"enabled": enabled})
         status = "เปิดใช้งาน ✅" if enabled else "ปิดใช้งาน (กลับไปใช้ image_url ปกติ)"
-        await interaction.response.send_message(f"Welcome Image: {status}", ephemeral=True)
+        await interaction.response.send_message(embed=style.info(f"Welcome Image: {status}"), ephemeral=True)
 
     @app_commands.command(
         name="welcome-image-preview", description="ดูตัวอย่าง Welcome Image ปัจจุบัน"
@@ -229,7 +230,7 @@ class WelcomeImage(commands.Cog):
         cfg = (await db.get_guild_config(interaction.guild_id))["welcome_image"]
         if not cfg.get("background_asset_id"):
             await interaction.followup.send(
-                "⚠️ ยังไม่ได้ตั้งรูปพื้นหลัง ใช้ `/welcome-image-set-background` ก่อน", ephemeral=True
+                embed=style.warn("ยังไม่ได้ตั้งรูปพื้นหลัง ใช้ `/welcome-image-set-background` ก่อน"), ephemeral=True
             )
             return
 
@@ -238,10 +239,10 @@ class WelcomeImage(commands.Cog):
         file = await _render_with_cfg(forced_cfg, interaction.guild_id, interaction.user)
         if file is None:
             await interaction.followup.send(
-                "⚠️ เรนเดอร์ไม่สำเร็จ เช็คว่าตั้งฟอนต์/รูปถูกต้องหรือยัง", ephemeral=True
+                embed=style.warn("เรนเดอร์ไม่สำเร็จ เช็คว่าตั้งฟอนต์/รูปถูกต้องหรือยัง"), ephemeral=True
             )
             return
-        embed = discord.Embed(title="🖼️ ตัวอย่าง Welcome Image", color=style.DEFAULT_COLOR)
+        embed = discord.Embed(title="🖼️ ตัวอย่าง Welcome Image ✨", color=style.DEFAULT_COLOR)
         embed.set_footer(text=f"{style.SYSTEM_ICON['welcome']} {style.BRAND}")
         embed.set_image(url="attachment://welcome_composite.png")
         await interaction.followup.send(embed=embed, file=file, ephemeral=True)

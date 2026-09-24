@@ -9,6 +9,7 @@ render_avatar_text_on_background) เพื่อไม่ให้โค้ด�
 ทำงานเหมือนกันทุกอย่าง
 """
 
+import asyncio
 import io
 import random
 
@@ -32,7 +33,7 @@ def build_goodbye_embed(cfg: dict, member: discord.Member) -> discord.Embed:
     embed = discord.Embed(
         title=render_variables(cfg.get("title", ""), member, use_mention=False),
         description=render_variables(cfg.get("description", ""), member, use_mention=False),
-        color=parse_hex_color(cfg.get("color", "#6b7280")),
+        color=parse_hex_color(cfg.get("color", "#C4B5FD")),
     )
     if cfg.get("image_url"):
         embed.set_image(url=cfg["image_url"])
@@ -70,7 +71,7 @@ async def build_goodbye_message(
                     avatar_bytes = None
                 text = render_variables(render_cfg.get("title", ""), member, use_mention=False)
                 try:
-                    image_bytes = render_avatar_text_on_background(
+                    image_bytes = await asyncio.to_thread(render_avatar_text_on_background, 
                         bg_bytes, avatar_bytes, font_bytes, text
                     )
                     file = discord.File(io.BytesIO(image_bytes), filename="goodbye_composite.png")
@@ -97,8 +98,8 @@ class GoodbyeEditorModal(discord.ui.Modal, title="👋 Goodbye Message"):
             max_length=1000,
         )
         self.color_input = discord.ui.TextInput(
-            label="Hex Color (เช่น #6b7280)",
-            default=current.get("color", "#6b7280"),
+            label="Hex Color (เช่น #C4B5FD)",
+            default=current.get("color", "#C4B5FD"),
             max_length=7,
         )
         self.image_input = discord.ui.TextInput(
@@ -157,7 +158,7 @@ class GoodbyePreviewView(discord.ui.View):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.editor_id:
             await interaction.response.send_message(
-                "ปุ่มนี้ใช้ได้เฉพาะคนที่เปิดหน้าต่างแก้ไขนี้เท่านั้นครับ", ephemeral=True
+                embed=style.warn("ปุ่มนี้ใช้ได้เฉพาะคนที่เปิดหน้าต่างแก้ไขนี้เท่านั้นครับ"), ephemeral=True
             )
             return False
         return True
@@ -210,7 +211,7 @@ class Goodbye(commands.Cog):
             interaction.guild_id, "goodbye", {"channel_id": channel.id}
         )
         await interaction.response.send_message(
-            f"✅ ตั้งห้องอำลาเป็น {channel.mention} แล้ว", ephemeral=True
+            embed=style.success(f"ตั้งห้องอำลาเป็น {channel.mention} แล้ว"), ephemeral=True
         )
 
     @app_commands.command(
@@ -225,7 +226,7 @@ class Goodbye(commands.Cog):
         image_urls.append(url)
         await db.update_guild_section(interaction.guild_id, "goodbye", {"image_urls": image_urls})
         await interaction.response.send_message(
-            f"✅ เพิ่มรูปแล้ว ตอนนี้มีทั้งหมด **{len(image_urls)} รูป** ในคลัง", ephemeral=True
+            embed=style.success(f"เพิ่มรูปแล้ว ตอนนี้มีทั้งหมด **{len(image_urls)} รูป** ในคลัง"), ephemeral=True
         )
 
     @app_commands.command(
@@ -237,12 +238,12 @@ class Goodbye(commands.Cog):
         image_urls = cfg["goodbye"].get("image_urls") or []
         if not image_urls:
             await interaction.response.send_message(
-                "ยังไม่มีรูปในคลังเลยครับ ใช้ `/goodbye-add-image` เพื่อเริ่มเพิ่ม", ephemeral=True
+                embed=style.info("ยังไม่มีรูปในคลังเลยครับ ใช้ `/goodbye-add-image` เพื่อเริ่มเพิ่ม"), ephemeral=True
             )
             return
         lines = [f"{i + 1}. {url}" for i, url in enumerate(image_urls)]
         await interaction.response.send_message(
-            f"📋 มีทั้งหมด {len(image_urls)} รูปในคลัง:\n" + "\n".join(lines), ephemeral=True
+            embed=style.info(f"📋 มีทั้งหมด {len(image_urls)} รูปในคลัง:\n" + "\n".join(lines)), ephemeral=True
         )
 
     @app_commands.command(
@@ -255,13 +256,13 @@ class Goodbye(commands.Cog):
         image_urls = cfg["goodbye"].get("image_urls") or []
         if index < 1 or index > len(image_urls):
             await interaction.response.send_message(
-                f"⚠️ ลำดับไม่ถูกต้อง (มีทั้งหมด {len(image_urls)} รูป)", ephemeral=True
+                embed=style.warn(f"ลำดับไม่ถูกต้อง (มีทั้งหมด {len(image_urls)} รูป)"), ephemeral=True
             )
             return
         removed = image_urls.pop(index - 1)
         await db.update_guild_section(interaction.guild_id, "goodbye", {"image_urls": image_urls})
         await interaction.response.send_message(
-            f"🗑️ ลบรูปที่ {index} แล้ว (`{removed[:60]}...`)", ephemeral=True
+            embed=style.info(f"🗑️ ลบรูปที่ {index} แล้ว (`{removed[:60]}...`)"), ephemeral=True
         )
 
     @commands.Cog.listener()

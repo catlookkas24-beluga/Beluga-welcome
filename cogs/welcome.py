@@ -41,7 +41,7 @@ def parse_hex_color(hex_str: str) -> discord.Color:
         hex_str = hex_str.strip().lstrip("#")
         return discord.Color(int(hex_str, 16))
     except (ValueError, AttributeError):
-        return discord.Color.blurple()
+        return discord.Color(style.DEFAULT_COLOR)
 
 
 async def fetch_image_bytes(url: str) -> bytes | None:
@@ -117,7 +117,7 @@ def build_welcome_embed(cfg: dict, member: discord.Member) -> discord.Embed:
         # กันโชว์เป็นรหัสดิบ <@id> เหมือนระบบเก่า
         title=render_variables(cfg.get("title", ""), member, use_mention=False),
         description=render_variables(cfg.get("description", ""), member, use_mention=True),
-        color=parse_hex_color(cfg.get("color", "#a0d2eb")),
+        color=parse_hex_color(cfg.get("color", "#FF9EC4")),
     )
     if cfg.get("image_url"):
         embed.set_image(url=cfg["image_url"])
@@ -155,7 +155,7 @@ def build_extra_embed(cfg: dict, member: discord.Member) -> discord.Embed | None
     return discord.Embed(
         title=render_variables(cfg["extra_embed_title"], member, use_mention=False),
         description=render_variables(cfg.get("extra_embed_description", ""), member, use_mention=True),
-        color=parse_hex_color(cfg.get("color", "#a0d2eb")),
+        color=parse_hex_color(cfg.get("color", "#FF9EC4")),
     )
 
 
@@ -198,7 +198,7 @@ async def build_welcome_message(
                 text_color_hex = render_cfg.get("text_color", "#ffffff")
                 text_rgba = parse_hex_rgba(text_color_hex) if text_color_hex else (255, 255, 255, 255)
                 try:
-                    image_bytes = render_avatar_text_on_background(
+                    image_bytes = await asyncio.to_thread(render_avatar_text_on_background, 
                         bg_bytes,
                         avatar_bytes,
                         font_bytes,
@@ -234,8 +234,8 @@ class WelcomeEditorModal(discord.ui.Modal, title="🎨 Welcome Designer"):
             max_length=1000,
         )
         self.color_input = discord.ui.TextInput(
-            label="Hex Color (เช่น #a0d2eb)",
-            default=current.get("color", "#a0d2eb"),
+            label="Hex Color (เช่น #FF9EC4)",
+            default=current.get("color", "#FF9EC4"),
             max_length=7,
         )
         self.image_input = discord.ui.TextInput(
@@ -303,7 +303,7 @@ class WallpaperPreviewView(discord.ui.View):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.editor_id:
             await interaction.response.send_message(
-                "ปุ่มนี้ใช้ได้เฉพาะคนที่เปิดหน้าต่างแก้ไขนี้เท่านั้นครับ", ephemeral=True
+                embed=style.warn("ปุ่มนี้ใช้ได้เฉพาะคนที่เปิดหน้าต่างแก้ไขนี้เท่านั้นครับ"), ephemeral=True
             )
             return False
         return True
@@ -361,7 +361,7 @@ class Welcome(commands.Cog):
             interaction.guild_id, "welcome", {"channel_id": channel.id}
         )
         await interaction.response.send_message(
-            f"✅ ตั้งห้องต้อนรับเป็น {channel.mention} แล้ว", ephemeral=True
+            embed=style.success(f"ตั้งห้องต้อนรับเป็น {channel.mention} แล้ว"), ephemeral=True
         )
 
     @app_commands.command(
@@ -376,7 +376,7 @@ class Welcome(commands.Cog):
         image_urls.append(url)
         await db.update_guild_section(interaction.guild_id, "welcome", {"image_urls": image_urls})
         await interaction.response.send_message(
-            f"✅ เพิ่มรูปแล้ว ตอนนี้มีทั้งหมด **{len(image_urls)} รูป** ในคลัง (บอทจะสุ่มเลือก 1 รูปทุกครั้งที่มีคนเข้าเซิร์ฟ)",
+            embed=style.success(f"เพิ่มรูปแล้ว ตอนนี้มีทั้งหมด **{len(image_urls)} รูป** ในคลัง (บอทจะสุ่มเลือก 1 รูปทุกครั้งที่มีคนเข้าเซิร์ฟ)"),
             ephemeral=True,
         )
 
@@ -389,14 +389,14 @@ class Welcome(commands.Cog):
         image_urls = cfg["welcome"].get("image_urls") or []
         if not image_urls:
             await interaction.response.send_message(
-                "ยังไม่มีรูปในคลังเลยครับ ใช้ `/welcome-add-image` เพื่อเริ่มเพิ่ม (ตอนนี้ใช้ Main Image URL "
-                "จาก `/welcome-editor` เดี่ยว ๆ อยู่)",
+                embed=style.info("ยังไม่มีรูปในคลังเลยครับ ใช้ `/welcome-add-image` เพื่อเริ่มเพิ่ม (ตอนนี้ใช้ Main Image URL "
+                "จาก `/welcome-editor` เดี่ยว ๆ อยู่)"),
                 ephemeral=True,
             )
             return
         lines = [f"{i + 1}. {url}" for i, url in enumerate(image_urls)]
         await interaction.response.send_message(
-            f"📋 มีทั้งหมด {len(image_urls)} รูปในคลัง:\n" + "\n".join(lines), ephemeral=True
+            embed=style.info(f"📋 มีทั้งหมด {len(image_urls)} รูปในคลัง:\n" + "\n".join(lines)), ephemeral=True
         )
 
     @app_commands.command(
@@ -409,13 +409,13 @@ class Welcome(commands.Cog):
         image_urls = cfg["welcome"].get("image_urls") or []
         if index < 1 or index > len(image_urls):
             await interaction.response.send_message(
-                f"⚠️ ลำดับไม่ถูกต้อง (มีทั้งหมด {len(image_urls)} รูป)", ephemeral=True
+                embed=style.warn(f"ลำดับไม่ถูกต้อง (มีทั้งหมด {len(image_urls)} รูป)"), ephemeral=True
             )
             return
         removed = image_urls.pop(index - 1)
         await db.update_guild_section(interaction.guild_id, "welcome", {"image_urls": image_urls})
         await interaction.response.send_message(
-            f"🗑️ ลบรูปที่ {index} แล้ว (`{removed[:60]}...`)", ephemeral=True
+            embed=style.info(f"🗑️ ลบรูปที่ {index} แล้ว (`{removed[:60]}...`)"), ephemeral=True
         )
 
     # ---------------- 👤 Author / Footer ----------------
@@ -436,7 +436,7 @@ class Welcome(commands.Cog):
             "welcome",
             {"author_name": name or None, "author_icon_url": icon_url},
         )
-        await interaction.response.send_message("✅ ตั้งค่า Author แล้ว", ephemeral=True)
+        await interaction.response.send_message(embed=style.success("ตั้งค่า Author แล้ว"), ephemeral=True)
 
     @app_commands.command(
         name="welcome-set-footer", description="ตั้งช่อง Footer (ข้อความเล็กด้านล่าง embed) (แอดมินเท่านั้น)"
@@ -454,7 +454,7 @@ class Welcome(commands.Cog):
             "welcome",
             {"footer_text": text or None, "footer_icon_url": icon_url},
         )
-        await interaction.response.send_message("✅ ตั้งค่า Footer แล้ว", ephemeral=True)
+        await interaction.response.send_message(embed=style.success("ตั้งค่า Footer แล้ว"), ephemeral=True)
 
     # ---------------- 📋 Embed Fields ----------------
 
@@ -470,20 +470,20 @@ class Welcome(commands.Cog):
         fields = cfg["welcome"].get("fields", [])
         if len(fields) >= 3:
             await interaction.response.send_message(
-                "⚠️ ใส่ได้สูงสุด 3 ช่อง ใช้ `/welcome-clear-fields` ก่อนถ้าจะเปลี่ยนใหม่", ephemeral=True
+                embed=style.warn("ใส่ได้สูงสุด 3 ช่อง ใช้ `/welcome-clear-fields` ก่อนถ้าจะเปลี่ยนใหม่"), ephemeral=True
             )
             return
         fields.append({"name": name, "value": value, "inline": inline})
         await db.update_guild_section(interaction.guild_id, "welcome", {"fields": fields})
         await interaction.response.send_message(
-            f"✅ เพิ่มช่อง '{name}' แล้ว (ตอนนี้มี {len(fields)}/3 ช่อง)", ephemeral=True
+            embed=style.success(f"เพิ่มช่อง '{name}' แล้ว (ตอนนี้มี {len(fields)}/3 ช่อง)"), ephemeral=True
         )
 
     @app_commands.command(name="welcome-clear-fields", description="ลบช่องข้อมูลย่อยทั้งหมดออก (แอดมินเท่านั้น)")
     @require_permission()
     async def welcome_clear_fields(self, interaction: discord.Interaction):
         await db.update_guild_section(interaction.guild_id, "welcome", {"fields": []})
-        await interaction.response.send_message("🗑️ ลบช่องข้อมูลย่อยทั้งหมดแล้ว", ephemeral=True)
+        await interaction.response.send_message(embed=style.info("🗑️ ลบช่องข้อมูลย่อยทั้งหมดแล้ว"), ephemeral=True)
 
     # ---------------- 📨 Multi-Embed ----------------
 
@@ -505,7 +505,7 @@ class Welcome(commands.Cog):
             {"extra_embed_title": title or None, "extra_embed_description": description or None},
         )
         status = "เปิดใช้งาน" if title else "ปิดการส่ง (เว้น title ว่างไว้)"
-        await interaction.response.send_message(f"✅ ตั้ง embed ที่สอง: {status}", ephemeral=True)
+        await interaction.response.send_message(embed=style.success(f"ตั้ง embed ที่สอง: {status}"), ephemeral=True)
 
     # ---------------- 🖼️ Composite Position / Border ----------------
 
@@ -554,11 +554,11 @@ class Welcome(commands.Cog):
         if border_width is not None:
             updates["border_width"] = border_width
         if not updates:
-            await interaction.response.send_message("⚠️ ใส่พารามิเตอร์อย่างน้อย 1 อย่าง", ephemeral=True)
+            await interaction.response.send_message(embed=style.warn("ใส่พารามิเตอร์อย่างน้อย 1 อย่าง"), ephemeral=True)
             return
         await db.update_guild_section(interaction.guild_id, "welcome", updates)
         await interaction.response.send_message(
-            f"✅ อัปเดต composite config แล้ว ({len(updates)} รายการ) — ใช้กับรูปที่ตั้งฟอนต์ไว้เท่านั้น",
+            embed=style.success(f"อัปเดต composite config แล้ว ({len(updates)} รายการ) — ใช้กับรูปที่ตั้งฟอนต์ไว้เท่านั้น"),
             ephemeral=True,
         )
 
@@ -572,7 +572,7 @@ class Welcome(commands.Cog):
     async def welcome_set_delay(self, interaction: discord.Interaction, seconds: int):
         seconds = max(0, min(seconds, 300))
         await db.update_guild_section(interaction.guild_id, "welcome", {"delay_seconds": seconds})
-        await interaction.response.send_message(f"✅ ตั้งค่าหน่วงเวลาเป็น {seconds} วินาทีแล้ว", ephemeral=True)
+        await interaction.response.send_message(embed=style.success(f"ตั้งค่าหน่วงเวลาเป็น {seconds} วินาทีแล้ว"), ephemeral=True)
 
     @app_commands.command(
         name="welcome-toggle-dm", description="เปิด/ปิดการส่ง DM ต้อนรับแยกจากที่โพสต์ในห้อง (แอดมินเท่านั้น)"
@@ -581,7 +581,7 @@ class Welcome(commands.Cog):
     async def welcome_toggle_dm(self, interaction: discord.Interaction, enabled: bool):
         await db.update_guild_section(interaction.guild_id, "welcome", {"dm_enabled": enabled})
         status = "เปิด ✅" if enabled else "ปิด"
-        await interaction.response.send_message(f"DM ต้อนรับ: {status}", ephemeral=True)
+        await interaction.response.send_message(embed=style.info(f"DM ต้อนรับ: {status}"), ephemeral=True)
 
     # ---------------- 📊 Statistics ----------------
 
@@ -590,7 +590,7 @@ class Welcome(commands.Cog):
         cfg = await db.get_guild_config(interaction.guild_id)
         count = cfg["welcome"].get("send_count", 0)
         await interaction.response.send_message(
-            f"📊 ส่งข้อความต้อนรับไปแล้วทั้งหมด **{count} ครั้ง**", ephemeral=True
+            embed=style.info(f"📊 ส่งข้อความต้อนรับไปแล้วทั้งหมด **{count} ครั้ง**"), ephemeral=True
         )
 
     # ---------------- 🎨 Preset / Theme System ----------------
@@ -603,7 +603,7 @@ class Welcome(commands.Cog):
     async def welcome_save_preset(self, interaction: discord.Interaction, name: str):
         cfg = await db.get_guild_config(interaction.guild_id)
         await db.save_welcome_preset(interaction.guild_id, name, cfg["welcome"])
-        await interaction.response.send_message(f"✅ บันทึก preset '{name}' แล้ว", ephemeral=True)
+        await interaction.response.send_message(embed=style.success(f"บันทึก preset '{name}' แล้ว"), ephemeral=True)
 
     @app_commands.command(
         name="welcome-load-preset", description="โหลด preset ที่บันทึกไว้มาใช้ทันที (แอดมินเท่านั้น)"
@@ -614,22 +614,22 @@ class Welcome(commands.Cog):
         preset_config = await db.load_welcome_preset(interaction.guild_id, name)
         if preset_config is None:
             await interaction.response.send_message(
-                f"⚠️ ไม่พบ preset '{name}' เช็คชื่อจาก `/welcome-list-presets`", ephemeral=True
+                embed=style.warn(f"ไม่พบ preset '{name}' เช็คชื่อจาก `/welcome-list-presets`"), ephemeral=True
             )
             return
         await db.update_guild_section(interaction.guild_id, "welcome", preset_config)
-        await interaction.response.send_message(f"✅ โหลด preset '{name}' มาใช้แล้ว", ephemeral=True)
+        await interaction.response.send_message(embed=style.success(f"โหลด preset '{name}' มาใช้แล้ว"), ephemeral=True)
 
     @app_commands.command(name="welcome-list-presets", description="ดูรายชื่อ preset ทั้งหมดที่บันทึกไว้")
     async def welcome_list_presets(self, interaction: discord.Interaction):
         names = await db.list_welcome_presets(interaction.guild_id)
         if not names:
             await interaction.response.send_message(
-                "ยังไม่มี preset เลยครับ ใช้ `/welcome-save-preset` เพื่อบันทึกชุดแรก", ephemeral=True
+                embed=style.info("ยังไม่มี preset เลยครับ ใช้ `/welcome-save-preset` เพื่อบันทึกชุดแรก"), ephemeral=True
             )
             return
         await interaction.response.send_message(
-            "🎨 Preset ที่มี:\n" + "\n".join(f"• {n}" for n in names), ephemeral=True
+            embed=style.info("🎨 Preset ที่มี:\n" + "\n".join(f"• {n}" for n in names)), ephemeral=True
         )
 
     @app_commands.command(name="welcome-delete-preset", description="ลบ preset ที่บันทึกไว้ (แอดมินเท่านั้น)")
@@ -638,9 +638,9 @@ class Welcome(commands.Cog):
     async def welcome_delete_preset(self, interaction: discord.Interaction, name: str):
         deleted = await db.delete_welcome_preset(interaction.guild_id, name)
         if deleted:
-            await interaction.response.send_message(f"🗑️ ลบ preset '{name}' แล้ว", ephemeral=True)
+            await interaction.response.send_message(embed=style.info(f"🗑️ ลบ preset '{name}' แล้ว"), ephemeral=True)
         else:
-            await interaction.response.send_message(f"⚠️ ไม่พบ preset '{name}'", ephemeral=True)
+            await interaction.response.send_message(embed=style.warn(f"ไม่พบ preset '{name}'"), ephemeral=True)
 
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):

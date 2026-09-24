@@ -100,7 +100,7 @@ class InfoEditModal(discord.ui.Modal, title="แก้ไขข้อมูล�
     async def on_submit(self, interaction: discord.Interaction):
         is_owner = await self.cog.bot.is_owner(interaction.user)
         if not is_owner and not _code_is_correct(self.code.value):
-            await interaction.response.send_message("⛔ รหัสยืนยันไม่ถูกต้องครับ", ephemeral=True)
+            await interaction.response.send_message(embed=style.error("รหัสยืนยันไม่ถูกต้องครับ"), ephemeral=True)
             return
 
         action_type = self.action.value.strip().lower()
@@ -108,38 +108,38 @@ class InfoEditModal(discord.ui.Modal, title="แก้ไขข้อมูล�
 
         if action_type == "created":
             if not _is_valid_date(val):
-                await interaction.response.send_message("⛔ รูปแบบวันที่ผิดครับ ใช้ YYYY-MM-DD เช่น 2026-06-01", ephemeral=True)
+                await interaction.response.send_message(embed=style.error("รูปแบบวันที่ผิดครับ ใช้ YYYY-MM-DD เช่น 2026-06-01"), ephemeral=True)
                 return
             await db.set_bot_created_date(val)
-            await interaction.response.send_message(f"✅ ตั้งวันที่เริ่มพัฒนาโปรเจกต์เป็น **{val}** แล้วครับ", ephemeral=True)
+            await interaction.response.send_message(embed=style.success(f"ตั้งวันที่เริ่มพัฒนาโปรเจกต์เป็น **{val}** แล้วครับ"), ephemeral=True)
 
         elif action_type == "version":
             today = _today_str()
             await db.set_bot_version(val, today)
-            await interaction.response.send_message(f"✅ ตั้งเวอร์ชันเป็น **{val}** แล้วครับ (อัปเดตล่าสุด: {today})", ephemeral=True)
+            await interaction.response.send_message(embed=style.success(f"ตั้งเวอร์ชันเป็น **{val}** แล้วครับ (อัปเดตล่าสุด: {today})"), ephemeral=True)
 
         elif action_type == "changelog":
             today = _today_str()
             full_entry = f"({today}) {val}"
             await db.add_bot_changelog(full_entry)
             await db.set_bot_last_updated(today)
-            await interaction.response.send_message(f"✅ เพิ่ม changelog แล้วครับ:\n> {full_entry}", ephemeral=True)
+            await interaction.response.send_message(embed=style.success(f"เพิ่ม changelog แล้วครับ:\n> {full_entry}"), ephemeral=True)
 
         elif action_type == "remove":
             try:
                 idx = int(val)
             except ValueError:
-                await interaction.response.send_message("⛔ ช่อง 'ค่า' ต้องเป็นเลข index ครับ (ดูได้จาก /info-list-changelog)", ephemeral=True)
+                await interaction.response.send_message(embed=style.error("ช่อง 'ค่า' ต้องเป็นเลข index ครับ (ดูได้จาก /info-list-changelog)"), ephemeral=True)
                 return
             removed = await db.remove_bot_changelog(idx)
             if removed:
-                await interaction.response.send_message(f"🗑️ ลบ changelog รายการที่ `{idx}` แล้วครับ", ephemeral=True)
+                await interaction.response.send_message(embed=style.info(f"🗑️ ลบ changelog รายการที่ `{idx}` แล้วครับ"), ephemeral=True)
             else:
-                await interaction.response.send_message("⛔ ไม่เจอ index นี้ครับ", ephemeral=True)
+                await interaction.response.send_message(embed=style.error("ไม่เจอ index นี้ครับ"), ephemeral=True)
 
         else:
             await interaction.response.send_message(
-                "⛔ ประเภทไม่ถูกต้องครับ ใช้ได้แค่: `created`, `version`, `changelog`, `remove`",
+                embed=style.error("ประเภทไม่ถูกต้องครับ ใช้ได้แค่: `created`, `version`, `changelog`, `remove`"),
                 ephemeral=True,
             )
 
@@ -159,12 +159,12 @@ class SetCreatedFromGuildModal(discord.ui.Modal, title="ตั้งวันท
     async def on_submit(self, interaction: discord.Interaction):
         is_owner = await self.cog.bot.is_owner(interaction.user)
         if not is_owner and not _code_is_correct(self.code.value):
-            await interaction.response.send_message("⛔ รหัสยืนยันไม่ถูกต้องครับ", ephemeral=True)
+            await interaction.response.send_message(embed=style.error("รหัสยืนยันไม่ถูกต้องครับ"), ephemeral=True)
             return
 
         if interaction.guild is None:
             await interaction.response.send_message(
-                "⛔ ต้องใช้คำสั่งนี้ในเซิร์ฟเวอร์ครับ (ใช้ใน DM ไม่ได้ เพราะไม่มีวันที่สร้างเซิร์ฟเวอร์ให้อ้างอิง)",
+                embed=style.error("ต้องใช้คำสั่งนี้ในเซิร์ฟเวอร์ครับ (ใช้ใน DM ไม่ได้ เพราะไม่มีวันที่สร้างเซิร์ฟเวอร์ให้อ้างอิง)"),
                 ephemeral=True,
             )
             return
@@ -172,8 +172,8 @@ class SetCreatedFromGuildModal(discord.ui.Modal, title="ตั้งวันท
         date_str = interaction.guild.created_at.strftime("%Y-%m-%d")
         await db.set_bot_created_date(date_str)
         await interaction.response.send_message(
-            f"✅ ตั้งวันที่เริ่มพัฒนาโปรเจกต์เป็น **{date_str}** แล้วครับ "
-            f"(ดึงจากวันที่สร้างเซิร์ฟเวอร์ **{interaction.guild.name}**)",
+            embed=style.success(f"ตั้งวันที่เริ่มพัฒนาโปรเจกต์เป็น **{date_str}** แล้วครับ "
+            f"(ดึงจากวันที่สร้างเซิร์ฟเวอร์ **{interaction.guild.name}**)"),
             ephemeral=True,
         )
 
@@ -354,7 +354,7 @@ class Info(commands.Cog):
         last_updated = meta["last_updated"] or "ยังไม่ได้ตั้งค่า"
 
         embed = discord.Embed(
-            title=f"ℹ️ {BOT_NAME} — ข้อมูลบอท",
+            title=f"💡 {BOT_NAME} ♡ — ข้อมูลบอท",
             description=f"{BOT_TAGLINE}\n{style.DIVIDER}",
             color=style.DEFAULT_COLOR,
         )

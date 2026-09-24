@@ -36,7 +36,7 @@ class MultiRoleGrantView(discord.ui.View):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.editor_id:
             await interaction.response.send_message(
-                "ใช้ได้เฉพาะคนที่สั่งคำสั่งนี้เท่านั้นครับ", ephemeral=True
+                embed=style.warn("ใช้ได้เฉพาะคนที่สั่งคำสั่งนี้เท่านั้นครับ"), ephemeral=True
             )
             return False
         return True
@@ -60,7 +60,7 @@ class MultiRoleGrantView(discord.ui.View):
     @discord.ui.button(label="ยืนยันให้สิทธิ์", emoji="✅", style=discord.ButtonStyle.success)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not self.selected_roles:
-            await interaction.response.send_message("⚠️ ยังไม่ได้เลือกยศเลย", ephemeral=True)
+            await interaction.response.send_message(embed=style.warn("ยังไม่ได้เลือกยศเลย"), ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True)
 
@@ -96,12 +96,12 @@ class CommandPermissions(commands.Cog):
         valid_names = {c.qualified_name for c in self.bot.tree.get_commands()}
         if command not in valid_names:
             await interaction.response.send_message(
-                f"⚠️ ไม่พบคำสั่ง `{command}` — เช็คชื่อจาก autocomplete อีกครั้ง", ephemeral=True
+                embed=style.warn(f"ไม่พบคำสั่ง `{command}` — เช็คชื่อจาก autocomplete อีกครั้ง"), ephemeral=True
             )
             return
         await db.add_allowed_role(interaction.guild_id, command, role.id)
         await interaction.response.send_message(
-            f"✅ ให้สิทธิ์ {role.mention} ใช้คำสั่ง `/{command}` แล้ว", ephemeral=True
+            embed=style.success(f"ให้สิทธิ์ {role.mention} ใช้คำสั่ง `/{command}` แล้ว"), ephemeral=True
         )
 
     @app_commands.command(
@@ -113,7 +113,7 @@ class CommandPermissions(commands.Cog):
     async def cmdperm_revoke(self, interaction: discord.Interaction, command: str, role: discord.Role):
         await db.remove_allowed_role(interaction.guild_id, command, role.id)
         await interaction.response.send_message(
-            f"🗑️ เอาสิทธิ์ {role.mention} ใช้คำสั่ง `/{command}` ออกแล้ว", ephemeral=True
+            embed=style.info(f"🗑️ เอาสิทธิ์ {role.mention} ใช้คำสั่ง `/{command}` ออกแล้ว"), ephemeral=True
         )
 
     @app_commands.command(
@@ -165,7 +165,7 @@ class CommandPermissions(commands.Cog):
 
         if not valid:
             await interaction.response.send_message(
-                "⚠️ ไม่พบคำสั่งที่พิมพ์มาเลย เช็คชื่อจาก `/cmdperm-list-all`", ephemeral=True
+                embed=style.warn("ไม่พบคำสั่งที่พิมพ์มาเลย เช็คชื่อจาก `/cmdperm-list-all`"), ephemeral=True
             )
             return
 
@@ -182,13 +182,13 @@ class CommandPermissions(commands.Cog):
         role_ids = await db.get_allowed_roles(interaction.guild_id, command)
         if not role_ids:
             await interaction.response.send_message(
-                f"ยังไม่มียศไหนถูกปลดล็อกสำหรับ `/{command}` เลย (ใช้ได้แค่คนที่มี Manage Server)",
+                embed=style.info(f"ยังไม่มียศไหนถูกปลดล็อกสำหรับ `/{command}` เลย (ใช้ได้แค่คนที่มี Manage Server)"),
                 ephemeral=True,
             )
             return
         mentions = [f"<@&{rid}>" for rid in role_ids]
         await interaction.response.send_message(
-            f"ยศที่ใช้ `/{command}` ได้เพิ่มเติม:\n" + "\n".join(mentions), ephemeral=True
+            embed=style.info(f"ยศที่ใช้ `/{command}` ได้เพิ่มเติม:\n" + "\n".join(mentions)), ephemeral=True
         )
 
     @app_commands.command(name="cmdperm-list-all", description="ดูสิทธิ์คำสั่งทั้งหมดที่ตั้งไว้ในเซิร์ฟนี้")
@@ -199,14 +199,14 @@ class CommandPermissions(commands.Cog):
 
         if not active_perms:
             await interaction.response.send_message(
-                "🔑 ยังไม่มีการตั้งค่าสิทธิ์คำสั่งพิเศษเลยครับ (ทุกคำสั่งต้องมี Manage Server)",
+                embed=style.info("🔑 ยังไม่มีการตั้งค่าสิทธิ์คำสั่งพิเศษเลยครับ (ทุกคำสั่งต้องมี Manage Server)"),
                 ephemeral=True,
             )
             return
 
         total_roles = len({rid for roles in active_perms.values() for rid in roles})
         embed = discord.Embed(
-            title="🔑 สิทธิ์คำสั่งที่ตั้งไว้",
+            title="🗝️ สิทธิ์คำสั่งที่ตั้งไว้",
             description=f"**{len(active_perms)} คำสั่ง** ปลดล็อกให้รวม **{total_roles} ยศ**\n{style.DIVIDER}",
             color=style.DEFAULT_COLOR,
         )

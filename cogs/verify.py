@@ -27,9 +27,9 @@ async def build_verify_panel_message(
     banner_asset_id = verify_cfg.get("banner_asset_id")
 
     embed = discord.Embed(
-        title="🛡️ ยืนยันตัวตน",
-        description=f"กดปุ่มด้านล่างเพื่อยืนยันตัวตนและเข้าใช้งานเซิร์ฟเวอร์แบบเต็มรูปแบบ\n{style.DIVIDER}",
-        color=parse_hex_color(verify_cfg.get("color", "#2ecc71")),
+        title="🎀 ยืนยันตัวตนก่อนเข้าบ้านน้า",
+        description=f"กดปุ่มด้านล่างเพื่อยืนยันตัวตน แล้วเข้ามาสนุกกับทุกห้องได้เต็มที่เลย ✨\n{style.DIVIDER}",
+        color=parse_hex_color(verify_cfg.get("color", "#8FE3B0")),
     )
     embed.set_footer(text=f"{style.SYSTEM_ICON['verify']} {style.BRAND}")
 
@@ -66,7 +66,7 @@ class ExplainModal(discord.ui.Modal, title="❓ ทำไมต้องยื�
             interaction.guild_id, "verify", {"explain_text": self.explain.value}
         )
         await interaction.response.send_message(
-            "✅ อัปเดตข้อความอธิบายแล้ว", ephemeral=True
+            embed=style.success("อัปเดตข้อความอธิบายแล้ว"), ephemeral=True
         )
 
 
@@ -90,23 +90,23 @@ class VerifyPanelView(discord.ui.View):
         role_id = cfg["verify"].get("role_id")
         if not role_id:
             await interaction.response.send_message(
-                "⚠️ ยังไม่ได้ตั้งค่ายศสำหรับยืนยันตัวตน กรุณาแจ้งแอดมิน", ephemeral=True
+                embed=style.warn("ยังไม่ได้ตั้งค่ายศสำหรับยืนยันตัวตน กรุณาแจ้งแอดมิน"), ephemeral=True
             )
             return
         role = interaction.guild.get_role(role_id)
         if role is None:
             await interaction.response.send_message(
-                "⚠️ ยศที่ตั้งไว้ถูกลบไปแล้ว กรุณาแจ้งแอดมิน", ephemeral=True
+                embed=style.warn("ยศที่ตั้งไว้ถูกลบไปแล้ว กรุณาแจ้งแอดมิน"), ephemeral=True
             )
             return
         if role in interaction.user.roles:
             await interaction.response.send_message(
-                "คุณยืนยันตัวตนไปแล้วครับ ✅", ephemeral=True
+                embed=style.info("คุณยืนยันตัวตนไปแล้วครับ ✅"), ephemeral=True
             )
             return
         await interaction.user.add_roles(role, reason="ยืนยันตัวตนผ่านปุ่ม")
         await interaction.response.send_message(
-            "🎉 ยืนยันตัวตนสำเร็จ! ยินดีต้อนรับครับ", ephemeral=True
+            embed=style.success("ยืนยันตัวตนสำเร็จ! ยินดีต้อนรับครับ"), ephemeral=True
         )
 
     @discord.ui.button(
@@ -133,7 +133,7 @@ class RoleSelectView(discord.ui.View):
         role = select.values[0]
         await db.update_guild_section(interaction.guild_id, "verify", {"role_id": role.id})
         await interaction.response.send_message(
-            f"✅ ตั้งยศยืนยันตัวตนเป็น {role.mention} แล้ว", ephemeral=True
+            embed=style.success(f"ตั้งยศยืนยันตัวตนเป็น {role.mention} แล้ว"), ephemeral=True
         )
 
 
@@ -149,7 +149,7 @@ class Verify(commands.Cog):
     @require_permission()
     async def verify_set_role(self, interaction: discord.Interaction):
         await interaction.response.send_message(
-            "เลือกยศจากเมนูด้านล่าง:", view=RoleSelectView(), ephemeral=True
+            embed=style.info("เลือกยศจากเมนูด้านล่าง:"), view=RoleSelectView(), ephemeral=True
         )
 
     @app_commands.command(
@@ -171,11 +171,11 @@ class Verify(commands.Cog):
         asset_type = db.detect_asset_type(image.filename)
         if asset_type != "image":
             await interaction.response.send_message(
-                "⚠️ ต้องเป็นไฟล์รูป .png .jpg .jpeg .webp เท่านั้น", ephemeral=True
+                embed=style.warn("ต้องเป็นไฟล์รูป .png .jpg .jpeg .webp เท่านั้น"), ephemeral=True
             )
             return
         if image.size > db.MAX_ASSET_SIZE_BYTES:
-            await interaction.response.send_message("⚠️ ไฟล์ใหญ่เกิน 5MB", ephemeral=True)
+            await interaction.response.send_message(embed=style.warn("ไฟล์ใหญ่เกิน 5MB"), ephemeral=True)
             return
 
         await interaction.response.defer(ephemeral=True)
@@ -185,7 +185,7 @@ class Verify(commands.Cog):
         )
         await db.update_guild_section(interaction.guild_id, "verify", {"banner_asset_id": file_id})
         await interaction.followup.send(
-            "✅ ตั้งภาพ banner แล้ว ใช้ `/verify-post-panel` เพื่อโพสต์แผงใหม่อีกครั้งให้เห็นผล",
+            embed=style.success("ตั้งภาพ banner แล้ว ใช้ `/verify-post-panel` เพื่อโพสต์แผงใหม่อีกครั้งให้เห็นผล"),
             ephemeral=True,
         )
 
@@ -194,11 +194,11 @@ class Verify(commands.Cog):
         description="ตั้งสี hex ของแผงยืนยันตัวตน (แอดมินเท่านั้น)",
     )
     @require_permission()
-    @app_commands.describe(hex_color="สี hex เช่น #2ecc71")
+    @app_commands.describe(hex_color="สี hex เช่น #8FE3B0")
     async def verify_set_color(self, interaction: discord.Interaction, hex_color: str):
         await db.update_guild_section(interaction.guild_id, "verify", {"color": hex_color})
         await interaction.response.send_message(
-            f"✅ ตั้งสีแผงยืนยันตัวตนเป็น `{hex_color}` แล้ว ใช้ `/verify-post-panel` เพื่อโพสต์แผงใหม่ให้เห็นผล",
+            embed=style.success(f"ตั้งสีแผงยืนยันตัวตนเป็น `{hex_color}` แล้ว ใช้ `/verify-post-panel` เพื่อโพสต์แผงใหม่ให้เห็นผล"),
             ephemeral=True,
         )
 
@@ -224,12 +224,12 @@ class Verify(commands.Cog):
             updates["explain_emoji"] = explain_emoji
         if not updates:
             await interaction.response.send_message(
-                "⚠️ ใส่อีโมจิอย่างน้อย 1 ช่อง", ephemeral=True
+                embed=style.warn("ใส่อีโมจิอย่างน้อย 1 ช่อง"), ephemeral=True
             )
             return
         await db.update_guild_section(interaction.guild_id, "verify", updates)
         await interaction.response.send_message(
-            "✅ ตั้งอีโมจิแล้ว ใช้ `/verify-post-panel` เพื่อโพสต์แผงใหม่ให้เห็นผล", ephemeral=True
+            embed=style.success("ตั้งอีโมจิแล้ว ใช้ `/verify-post-panel` เพื่อโพสต์แผงใหม่ให้เห็นผล"), ephemeral=True
         )
 
     @app_commands.command(
@@ -302,13 +302,13 @@ class Verify(commands.Cog):
             warning = f"\n⚠️ ล้มเหลว {failed} ห้อง — เช็คว่าบอทมีสิทธิ์ **Manage Channels** ในห้องนั้นไหม"
 
         await interaction.followup.send(
-            f"✅ ตั้งค่า Verify Gate เสร็จแล้ว!\n"
+            embed=style.success(f"ตั้งค่า Verify Gate เสร็จแล้ว!\n"
             f"- สร้างหมวด **{category.name}** พร้อมห้อง {verify_channel.mention} และ {rules_channel.mention}\n"
             f"- ล็อกห้องอื่น **{locked} ห้อง** ไม่ให้คนที่ยังไม่มียศ {verified_role.mention} เห็น"
             f"{warning}\n\n"
             f"⚠️ **สำคัญ**: ยศ/สมาชิกที่มีสิทธิ์ **Administrator** จะยังเห็นทุกห้องตามปกติ (Discord ยกเว้นให้อัตโนมัติ) "
             f"แต่ถ้ามีทีมงาน/มอดที่ไม่มี Administrator ต้องเพิ่ม role นั้นให้เห็นห้องที่จำเป็นด้วยตัวเอง "
-            f"(ใช้ `/permission-set` ได้) ไม่งั้นจะโดนล็อกไปด้วย",
+            f"(ใช้ `/permission-set` ได้) ไม่งั้นจะโดนล็อกไปด้วย"),
             ephemeral=True,
         )
 
@@ -326,7 +326,7 @@ class Verify(commands.Cog):
         await db.update_guild_section(
             interaction.guild_id, "verify", {"channel_id": interaction.channel_id}
         )
-        await interaction.response.send_message("✅ โพสต์แผงยืนยันตัวตนแล้ว", ephemeral=True)
+        await interaction.response.send_message(embed=style.success("โพสต์แผงยืนยันตัวตนแล้ว"), ephemeral=True)
 
 
 async def setup(bot: commands.Bot):

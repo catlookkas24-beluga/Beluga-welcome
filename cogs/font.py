@@ -4,6 +4,7 @@ cogs/font.py — 🔤 ระบบปรับแต่งรูปแบบอ�
 ใช้ดูตัวอย่างหน้าตาฟอนต์ก่อนตัดสินใจเลือกใช้ ไม่ได้เอาไปวางทับรูปอื่นใด ๆ
 """
 
+import asyncio
 import io
 import os
 
@@ -106,9 +107,9 @@ class Font(commands.Cog):
         custom_fonts = await db.list_assets(interaction.guild_id, asset_type="font")
 
         embed = discord.Embed(
-            title="🔤 คลังฟอนต์",
+            title="🖋️ คลังฟอนต์น่ารัก ๆ",
             description=f"ระบบ **{len(BUILTIN_FONTS)}** แบบ + อัปโหลดเอง **{len(custom_fonts)}** แบบ",
-            color=discord.Color.gold(),
+            color=discord.Color(style.COLOR_LEMON),
         )
         if interaction.guild.icon:
             embed.set_thumbnail(url=interaction.guild.icon.url)
@@ -159,7 +160,7 @@ class Font(commands.Cog):
         loaded = await load_font_bytes(interaction.guild_id, font)
         if loaded is None:
             await interaction.followup.send(
-                "⚠️ ไม่พบฟอนต์นี้ ลองเช็คชื่อ/ID จาก `/font-list` อีกครั้ง"
+                embed=style.warn("ไม่พบฟอนต์นี้ ลองเช็คชื่อ/ID จาก `/font-list` อีกครั้ง")
             )
             return
         font_bytes, font_label = loaded
@@ -169,16 +170,16 @@ class Font(commands.Cog):
         text_rgba = parse_hex_color(color)
 
         try:
-            image_bytes = render_text_preview(text, font_bytes, text_rgba, bg_rgba)
+            image_bytes = await asyncio.to_thread(render_text_preview, text, font_bytes, text_rgba, bg_rgba)
         except Exception as e:
-            await interaction.followup.send(f"⚠️ เรนเดอร์รูปไม่สำเร็จ: `{e}`")
+            await interaction.followup.send(embed=style.warn(f"เรนเดอร์รูปไม่สำเร็จ: `{e}`"))
             return
 
         file = discord.File(io.BytesIO(image_bytes), filename="font_preview.png")
         embed = style.brand_embed(
             title="🔤 ตัวอย่างฟอนต์",
             description=f"ฟอนต์: **{font_label}**\n{style.DIVIDER}",
-            color=0xF1C40F,
+            color=style.COLOR_LEMON,
             system="font",
         )
         embed.set_image(url="attachment://font_preview.png")

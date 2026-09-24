@@ -54,7 +54,7 @@ class WizardSession:
         embed = discord.Embed(
             title=f"🧙 Welcome Designer Wizard — {STEP_TITLES[self.step]}",
             description=progress_bar(self.step) + f"  ({self.step}/{TOTAL_STEPS})",
-            color=parse_hex_color(d.get("color", "#a0d2eb")),
+            color=parse_hex_color(d.get("color", "#FF9EC4")),
         )
         embed.add_field(name="หัวข้อ", value=(d.get("title") or "_ยังไม่ตั้ง_")[:200], inline=False)
         embed.add_field(
@@ -104,7 +104,7 @@ class WizardNavRow(discord.ui.View):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.session.editor_id:
             await interaction.response.send_message(
-                "ใช้ wizard นี้ได้เฉพาะคนที่เปิดเท่านั้นครับ", ephemeral=True
+                embed=style.warn("ใช้ wizard นี้ได้เฉพาะคนที่เปิดเท่านั้นครับ"), ephemeral=True
             )
             return False
         return True
@@ -115,7 +115,7 @@ class WizardNavRow(discord.ui.View):
 
     async def cancel(self, interaction: discord.Interaction):
         embed = discord.Embed(
-            title="🔄 ยกเลิก Wizard แล้ว", description="ไม่มีการบันทึกการเปลี่ยนแปลงใด ๆ", color=discord.Color.red()
+            title="🔄 ยกเลิก Wizard แล้ว", description="ไม่มีการบันทึกการเปลี่ยนแปลงใด ๆ", color=discord.Color(style.COLOR_ERROR)
         )
         await interaction.response.edit_message(embed=embed, view=None)
 
@@ -232,8 +232,8 @@ class Step3ColorModal(discord.ui.Modal, title="🎨 สีของงานอ�
         super().__init__()
         self.session = session
         self.color_input = discord.ui.TextInput(
-            label="สีหลัก (แถบ embed) เช่น #a0d2eb",
-            default=session.data.get("color", "#a0d2eb"),
+            label="สีหลัก (แถบ embed) เช่น #FF9EC4",
+            default=session.data.get("color", "#FF9EC4"),
             max_length=7,
         )
         self.text_color_input = discord.ui.TextInput(
@@ -436,7 +436,7 @@ class SavePresetModal(discord.ui.Modal, title="💾 บันทึกเป็�
     async def on_submit(self, interaction: discord.Interaction):
         await db.save_welcome_preset(self.session.guild_id, self.name_input.value, self.session.data)
         await interaction.response.send_message(
-            f"✅ บันทึก preset '{self.name_input.value}' จากค่าที่กำลังออกแบบอยู่แล้ว (ยังไม่ apply เป็นค่าใช้งานจริง)",
+            embed=style.success(f"บันทึก preset '{self.name_input.value}' จากค่าที่กำลังออกแบบอยู่แล้ว (ยังไม่ apply เป็นค่าใช้งานจริง)"),
             ephemeral=True,
         )
 

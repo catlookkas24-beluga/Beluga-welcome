@@ -33,14 +33,14 @@ class Assets(commands.Cog):
         asset_type = db.detect_asset_type(file.filename)
         if asset_type is None:
             await interaction.response.send_message(
-                "⚠️ นามสกุลไฟล์นี้ไม่รองรับ ต้องเป็น .png .jpg .jpeg .webp (รูป), "
-                ".ttf .otf (ฟอนต์), หรือ .json .txt (config) เท่านั้น",
+                embed=style.warn("นามสกุลไฟล์นี้ไม่รองรับ ต้องเป็น .png .jpg .jpeg .webp (รูป), "
+                ".ttf .otf (ฟอนต์), หรือ .json .txt (config) เท่านั้น"),
                 ephemeral=True,
             )
             return
         if file.size > db.MAX_ASSET_SIZE_BYTES:
             await interaction.response.send_message(
-                f"⚠️ ไฟล์ใหญ่เกินไป ({file.size / 1024 / 1024:.1f}MB) จำกัดไว้ที่ 5MB",
+                embed=style.warn(f"ไฟล์ใหญ่เกินไป ({file.size / 1024 / 1024:.1f}MB) จำกัดไว้ที่ 5MB"),
                 ephemeral=True,
             )
             return
@@ -51,8 +51,8 @@ class Assets(commands.Cog):
             interaction.guild_id, file.filename, data, asset_type, label
         )
         await interaction.followup.send(
-            f"✅ อัปโหลด **{label}** ({TYPE_LABELS[asset_type]}) แล้ว\n"
-            f"ขนาด: {len(data) / 1024:.1f} KB | ID: `{file_id}`",
+            embed=style.success(f"อัปโหลด **{label}** ({TYPE_LABELS[asset_type]}) แล้ว\n"
+            f"ขนาด: {len(data) / 1024:.1f} KB | ID: `{file_id}`"),
             ephemeral=True,
         )
 
@@ -62,13 +62,13 @@ class Assets(commands.Cog):
         assets = await db.list_assets(interaction.guild_id)
         if not assets:
             await interaction.response.send_message(
-                "📁 ยังไม่มีไฟล์ที่อัปโหลดไว้เลยครับ ใช้ `/asset-upload` เพื่อเริ่มอัปโหลด", ephemeral=True
+                embed=style.info("📁 ยังไม่มีไฟล์ที่อัปโหลดไว้เลยครับ ใช้ `/asset-upload` เพื่อเริ่มอัปโหลด"), ephemeral=True
             )
             return
 
         total_kb = sum(a["length"] for a in assets) / 1024
         embed = discord.Embed(
-            title="📁 คลังไฟล์",
+            title="🧸 คลังไฟล์ของเรา",
             description=f"ทั้งหมด **{len(assets)} ไฟล์** • รวม **{total_kb:.1f} KB**\n{style.DIVIDER}",
             color=style.DEFAULT_COLOR,
         )
@@ -94,13 +94,13 @@ class Assets(commands.Cog):
         try:
             deleted = await db.delete_asset(interaction.guild_id, file_id)
         except Exception:
-            await interaction.response.send_message("⚠️ ไม่พบไฟล์ ID นี้", ephemeral=True)
+            await interaction.response.send_message(embed=style.warn("ไม่พบไฟล์ ID นี้"), ephemeral=True)
             return
         if deleted:
-            await interaction.response.send_message("🗑️ ลบไฟล์แล้ว", ephemeral=True)
+            await interaction.response.send_message(embed=style.info("🗑️ ลบไฟล์แล้ว"), ephemeral=True)
         else:
             await interaction.response.send_message(
-                "⚠️ ไม่พบไฟล์นี้ในเซิร์ฟเวอร์นี้ (อาจเป็นไฟล์ของเซิร์ฟอื่น)", ephemeral=True
+                embed=style.warn("ไม่พบไฟล์นี้ในเซิร์ฟเวอร์นี้ (อาจเป็นไฟล์ของเซิร์ฟอื่น)"), ephemeral=True
             )
 
 

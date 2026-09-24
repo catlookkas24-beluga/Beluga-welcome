@@ -61,19 +61,19 @@ class ClaimRoleView(discord.ui.View):
         eligible = [t for t in cfg["timeline"] if t["role_id"] and days_in_server >= t["days"]]
         if not eligible:
             await interaction.response.send_message(
-                f"คุณอยู่มา {days_in_server} วัน ยังไม่ถึงเกณฑ์รับยศครับ", ephemeral=True
+                embed=style.info(f"คุณอยู่มา {days_in_server} วัน ยังไม่ถึงเกณฑ์รับยศครับ"), ephemeral=True
             )
             return
         best = max(eligible, key=lambda t: t["days"])
         role = interaction.guild.get_role(best["role_id"])
         if role is None:
-            await interaction.response.send_message("⚠️ ยศนี้ถูกลบไปแล้ว", ephemeral=True)
+            await interaction.response.send_message(embed=style.warn("ยศนี้ถูกลบไปแล้ว"), ephemeral=True)
             return
         if role in member.roles:
-            await interaction.response.send_message("คุณมียศนี้อยู่แล้วครับ", ephemeral=True)
+            await interaction.response.send_message(embed=style.info("คุณมียศนี้อยู่แล้วครับ"), ephemeral=True)
             return
         await member.add_roles(role, reason="รับยศตามอายุสมาชิก (self-claim)")
-        await interaction.response.send_message(f"🎉 ได้รับยศ {role.mention} แล้ว!", ephemeral=True)
+        await interaction.response.send_message(embed=style.success(f"ได้รับยศ {role.mention} แล้ว!"), ephemeral=True)
 
 
 class AutoRole(commands.Cog):
@@ -112,7 +112,7 @@ class AutoRole(commands.Cog):
         timeline.append({"days": days, "role_id": role.id, "label": label})
         await db.update_guild_section(interaction.guild_id, "autorole", {"timeline": timeline})
         await interaction.response.send_message(
-            f"✅ ตั้งค่า {days} วัน = {role.mention} ({label}) แล้ว", ephemeral=True
+            embed=style.success(f"ตั้งค่า {days} วัน = {role.mention} ({label}) แล้ว"), ephemeral=True
         )
 
     @app_commands.command(
@@ -129,7 +129,7 @@ class AutoRole(commands.Cog):
         await db.update_guild_section(
             interaction.guild_id, "autorole", {"auto_grant": mode.value == "auto"}
         )
-        await interaction.response.send_message(f"✅ ตั้งโหมดเป็น: {mode.name}", ephemeral=True)
+        await interaction.response.send_message(embed=style.success(f"ตั้งโหมดเป็น: {mode.name}"), ephemeral=True)
 
     @app_commands.command(
         name="autorole-post-claim", description="โพสต์ปุ่มรับยศในห้องนี้ (แอดมินเท่านั้น)"
@@ -137,16 +137,16 @@ class AutoRole(commands.Cog):
     @require_permission()
     async def autorole_post_claim(self, interaction: discord.Interaction):
         embed = discord.Embed(
-            title="🏅 รับยศตามอายุสมาชิก",
-            description=f"กดปุ่มด้านล่างเพื่อตรวจสอบและรับยศตามระยะเวลาที่คุณอยู่ในเซิร์ฟเวอร์\n{style.DIVIDER}",
-            color=discord.Color.gold(),
+            title="🍓 รับยศตามอายุสมาชิก",
+            description=f"อยู่กับเรานานขึ้น ก็ได้ยศน่ารัก ๆ เพิ่มขึ้นน้า~ 🌱➡️🌸\nกดปุ่มด้านล่างเพื่อตรวจสอบและรับยศได้เลย\n{style.DIVIDER}",
+            color=discord.Color(style.COLOR_LEMON),
         )
         embed.set_footer(text=f"{style.SYSTEM_ICON['autorole']} {style.BRAND}")
         await interaction.channel.send(embed=embed, view=ClaimRoleView())
         await db.update_guild_section(
             interaction.guild_id, "autorole", {"claim_channel_id": interaction.channel_id}
         )
-        await interaction.response.send_message("✅ โพสต์ปุ่มรับยศแล้ว", ephemeral=True)
+        await interaction.response.send_message(embed=style.success("โพสต์ปุ่มรับยศแล้ว"), ephemeral=True)
 
 
 async def setup(bot: commands.Bot):

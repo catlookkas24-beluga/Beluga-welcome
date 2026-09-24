@@ -3,6 +3,7 @@ cogs/activity.py — 📊 Activity / Stats Dashboard
 นับข้อความ + เวลาเข้าห้องเสียงของสมาชิกแต่ละคน แล้วสรุปเป็นอันดับ/กราฟ
 """
 
+import asyncio
 import io
 import os
 from datetime import datetime, timezone
@@ -154,8 +155,8 @@ class Activity(commands.Cog):
         daily_series = await db.get_daily_series(interaction.guild_id, target.id, days=14)
 
         embed = discord.Embed(
-            title=f"📊 สถิติของ {target.display_name}",
-            color=target.color if target.color.value else discord.Color.blurple(),
+            title=f"🐣 สถิติของ {target.display_name} ✨",
+            color=target.color if target.color.value else discord.Color(style.DEFAULT_COLOR),
         )
         embed.set_thumbnail(url=target.display_avatar.url)
         embed.add_field(
@@ -197,7 +198,7 @@ class Activity(commands.Cog):
         embed.timestamp = datetime.now(timezone.utc)
 
         try:
-            chart_bytes = render_activity_chart(daily_series)
+            chart_bytes = await asyncio.to_thread(render_activity_chart, daily_series)
             file = discord.File(io.BytesIO(chart_bytes), filename="activity_chart.png")
             embed.set_image(url="attachment://activity_chart.png")
             await interaction.followup.send(embed=embed, file=file)
@@ -231,9 +232,9 @@ class Activity(commands.Cog):
             lines.append(f"{prefix} <@{user_id}> — **{value_text}**")
 
         embed = style.brand_embed(
-            title=f"🏆 Leaderboard — {metric.name}",
+            title=f"🏆 Leaderboard — {metric.name} 🌟",
             description=f"{style.DIVIDER}\n" + "\n".join(lines),
-            color=0xF1C40F,
+            color=style.COLOR_LEMON,
             system="activity",
             thumbnail=interaction.guild.icon.url if interaction.guild.icon else None,
         )

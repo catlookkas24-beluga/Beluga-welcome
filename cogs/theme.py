@@ -12,7 +12,7 @@ import db
 import style
 from checks import require_permission
 
-THEMED_SECTIONS = ["welcome", "goodbye", "verify", "rules", "ticket"]
+THEMED_SECTIONS = ["welcome", "goodbye", "verify", "rules", "ticket", "music"]
 
 
 class Theme(commands.Cog):
@@ -21,10 +21,10 @@ class Theme(commands.Cog):
 
     @app_commands.command(
         name="theme-set-color",
-        description="ตั้งสีหลักให้ทุกระบบพร้อมกัน (welcome, goodbye, verify, rules, ticket) (แอดมินเท่านั้น)",
+        description="ตั้งสีหลักให้ทุกระบบพร้อมกัน (welcome, goodbye, verify, rules, ticket, music) (แอดมินเท่านั้น)",
     )
     @require_permission()
-    @app_commands.describe(hex_color="สี hex เช่น #a0d2eb")
+    @app_commands.describe(hex_color="สี hex เช่น #FF9EC4")
     async def theme_set_color(self, interaction: discord.Interaction, hex_color: str):
         hex_color = hex_color.strip()
         if not hex_color.startswith("#"):
@@ -34,7 +34,7 @@ class Theme(commands.Cog):
             preview_color = int(hex_color.lstrip("#"), 16)
         except ValueError:
             await interaction.response.send_message(
-                embed=style.error("ใส่ hex code ไม่ถูกต้องครับ เช่น `#a0d2eb` หรือ `a0d2eb`", system="theme"),
+                embed=style.error("ใส่ hex code ไม่ถูกต้องครับ เช่น `#FF9EC4` หรือ `a0d2eb`", system="theme"),
                 ephemeral=True,
             )
             return

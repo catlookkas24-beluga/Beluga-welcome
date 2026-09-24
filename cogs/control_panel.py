@@ -34,7 +34,7 @@ class TogglePanelView(discord.ui.View):
 
     def make_button(self, key: str, label: str, enabled: bool) -> discord.ui.Button:
         style = discord.ButtonStyle.success if enabled else discord.ButtonStyle.danger
-        status = "เปิดอยู่" if enabled else "ปิดอยู่"
+        status = "เปิดอยู่ ✨" if enabled else "ปิดอยู่ 💤"
         button = discord.ui.Button(label=f"{label} — {status}", style=style, custom_id=f"panel:{key}")
 
         async def callback(interaction: discord.Interaction):
@@ -60,8 +60,8 @@ class ControlPanel(commands.Cog):
     async def beluga_panel(self, interaction: discord.Interaction):
         cfg = await db.get_guild_config(interaction.guild_id)
         embed = discord.Embed(
-            title="🕹️ Anyaluga Control Panel",
-            description=f"กดปุ่มเพื่อเปิด/ปิดแต่ละระบบสำหรับเซิร์ฟเวอร์นี้\n{brand_style.DIVIDER}",
+            title="🎛️ Anyaluga Control Panel ♡",
+            description=f"กดปุ่มเพื่อเปิด/ปิดแต่ละระบบของบ้านเราได้เลยน้า~ 🎀\n🟢 = เปิดอยู่ ✨   🔴 = ปิดอยู่ 💤\n{brand_style.DIVIDER}",
             color=brand_style.DEFAULT_COLOR,
         )
         if interaction.guild.icon:

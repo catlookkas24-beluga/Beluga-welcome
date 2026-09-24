@@ -18,13 +18,13 @@ from cogs.welcome import parse_hex_color
 
 def build_rules_embed(cfg: dict) -> discord.Embed:
     embed = discord.Embed(
-        title=cfg.get("title", "📜 กฎของเซิร์ฟเวอร์"),
+        title=cfg.get("title", "📖 กฎของบ้านเรา"),
         description=cfg.get("rules_text", ""),
-        color=parse_hex_color(cfg.get("color", "#e67e22")),
+        color=parse_hex_color(cfg.get("color", "#FFB38A")),
     )
     if cfg.get("rank_text"):
-        embed.add_field(name="🏅 เงื่อนไขการเลื่อนยศ", value=cfg["rank_text"], inline=False)
-    embed.set_footer(text=f"{style.SYSTEM_ICON['rules']} {style.BRAND} • อัปเดตอัตโนมัติเมื่อแอดมินแก้ไข")
+        embed.add_field(name="🍓 เงื่อนไขการเลื่อนยศ", value=cfg["rank_text"], inline=False)
+    embed.set_footer(text=f"{style.SYSTEM_ICON['rules']} {style.BRAND} • อัปเดตอัตโนมัติเมื่อแอดมินแก้ไขน้า")
     return embed
 
 
@@ -76,7 +76,7 @@ class RulesEditorModal(discord.ui.Modal, title="📜 แก้ไขกฎเซ
                 except discord.NotFound:
                     pass
         note = "และอัปเดตข้อความในห้องกฎแล้ว" if updated else "(ยังไม่ได้ผูกกับข้อความในห้องกฎ ใช้ /rules-post ก่อน)"
-        await interaction.response.send_message(f"✅ บันทึกกฎใหม่แล้ว {note}", ephemeral=True)
+        await interaction.response.send_message(embed=style.success(f"บันทึกกฎใหม่แล้ว {note}"), ephemeral=True)
 
 
 class Rules(commands.Cog):
@@ -102,7 +102,7 @@ class Rules(commands.Cog):
             "rules",
             {"channel_id": interaction.channel_id, "message_id": msg.id},
         )
-        await interaction.response.send_message("✅ โพสต์กฎและผูกห้องนี้แล้ว", ephemeral=True)
+        await interaction.response.send_message(embed=style.success("โพสต์กฎและผูกห้องนี้แล้ว"), ephemeral=True)
 
 
 async def setup(bot: commands.Bot):

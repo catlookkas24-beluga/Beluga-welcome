@@ -48,7 +48,7 @@ class BulkCategorySelectView(discord.ui.View):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.editor_id:
             await interaction.response.send_message(
-                "ใช้ได้เฉพาะคนที่สั่งคำสั่งนี้เท่านั้นครับ", ephemeral=True
+                embed=style.warn("ใช้ได้เฉพาะคนที่สั่งคำสั่งนี้เท่านั้นครับ"), ephemeral=True
             )
             return False
         return True
@@ -125,7 +125,7 @@ class MultiPermissionSelectView(discord.ui.View):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.editor_id:
             await interaction.response.send_message(
-                "ใช้ได้เฉพาะคนที่สั่งคำสั่งนี้เท่านั้นครับ", ephemeral=True
+                embed=style.warn("ใช้ได้เฉพาะคนที่สั่งคำสั่งนี้เท่านั้นครับ"), ephemeral=True
             )
             return False
         return True
@@ -146,7 +146,7 @@ class MultiPermissionSelectView(discord.ui.View):
     @discord.ui.button(label="ยืนยันตั้งค่า", emoji="✅", style=discord.ButtonStyle.success)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not self.selected_permissions:
-            await interaction.response.send_message("⚠️ ยังไม่ได้เลือกสิทธิ์เลย", ephemeral=True)
+            await interaction.response.send_message(embed=style.warn("ยังไม่ได้เลือกสิทธิ์เลย"), ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True)
         guild = interaction.guild
@@ -264,8 +264,8 @@ class Permissions(commands.Cog):
         bool_value = VALUE_MAP[value.value]
         view = BulkCategorySelectView(role, permission.value, bool_value, interaction.user.id)
         await interaction.response.send_message(
-            "เลือกหมวดหมู่ที่จะปรับจากเมนูด้านล่าง (เลือกได้หลายอัน) แล้วกด **ยืนยันตั้งค่า**\n"
-            "ไม่เลือกเลยแล้วกดยืนยัน = ปรับทั้งเซิร์ฟ",
+            embed=style.info("เลือกหมวดหมู่ที่จะปรับจากเมนูด้านล่าง (เลือกได้หลายอัน) แล้วกด **ยืนยันตั้งค่า**\n"
+            "ไม่เลือกเลยแล้วกดยืนยัน = ปรับทั้งเซิร์ฟ"),
             view=view,
             ephemeral=True,
         )
@@ -298,8 +298,8 @@ class Permissions(commands.Cog):
         view = MultiPermissionSelectView(role, bool_value, category, interaction.user.id)
         scope_text = f"หมวดหมู่ **{category.name}**" if category else "**ทั้งเซิร์ฟ**"
         await interaction.response.send_message(
-            f"เลือกสิทธิ์ที่จะตั้งจากเมนูด้านล่าง (เลือกได้หลายอัน) — จะปรับใน {scope_text}\n"
-            f"เลือกครบแล้วกด **ยืนยันตั้งค่า**",
+            embed=style.info(f"เลือกสิทธิ์ที่จะตั้งจากเมนูด้านล่าง (เลือกได้หลายอัน) — จะปรับใน {scope_text}\n"
+            f"เลือกครบแล้วกด **ยืนยันตั้งค่า**"),
             view=view,
             ephemeral=True,
         )
@@ -328,7 +328,7 @@ class Permissions(commands.Cog):
 
         if not lines:
             await interaction.followup.send(
-                f"ยศ {role.mention} ยังไม่มีสิทธิ์พิเศษ (override) ในห้องไหนเลย", ephemeral=True
+                embed=style.info(f"ยศ {role.mention} ยังไม่มีสิทธิ์พิเศษ (override) ในห้องไหนเลย"), ephemeral=True
             )
             return
 
