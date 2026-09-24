@@ -12,6 +12,7 @@ import discord
 from discord import app_commands
 
 import db
+import style
 
 
 def require_permission():
@@ -19,6 +20,9 @@ def require_permission():
 
     async def predicate(interaction: discord.Interaction) -> bool:
         if interaction.guild is None:
+            await interaction.response.send_message(
+                embed=style.warn("คำสั่งนี้ใช้ในเซิร์ฟเวอร์เท่านั้นน้า 🏠", system="cmdperms"), ephemeral=True
+            )
             return False
 
         if interaction.user.guild_permissions.manage_guild:
@@ -31,8 +35,11 @@ def require_permission():
         allowed_role_ids = set(await db.get_allowed_roles(interaction.guild_id, command_name))
         if not allowed_role_ids:
             await interaction.response.send_message(
-                "⛔ คำสั่งนี้ต้องมีสิทธิ์ **Manage Server** หรือได้รับอนุญาตจากแอดมิน "
-                "(ผ่าน `/cmdperm-grant`) ครับ",
+                embed=style.warn(
+                    "คำสั่งนี้ต้องมีสิทธิ์ **Manage Server** หรือได้รับอนุญาตจากแอดมินน้า 🎀\n"
+                    "(แอดมินให้สิทธิ์ยศอื่นได้ผ่าน `/cmdperm-grant`)",
+                    title="ยังใช้คำสั่งนี้ไม่ได้น้า", system="cmdperms",
+                ),
                 ephemeral=True,
             )
             return False
@@ -42,7 +49,11 @@ def require_permission():
             return True
 
         await interaction.response.send_message(
-            "⛔ คุณไม่มีสิทธิ์ใช้คำสั่งนี้ครับ ติดต่อแอดมินถ้าต้องการสิทธิ์เพิ่ม", ephemeral=True
+            embed=style.warn(
+                "ยศของคุณยังไม่ได้รับอนุญาตให้ใช้คำสั่งนี้ ลองติดต่อแอดมินถ้าต้องการสิทธิ์เพิ่มน้า 💌",
+                title="ยังใช้คำสั่งนี้ไม่ได้น้า", system="cmdperms",
+            ),
+            ephemeral=True,
         )
         return False
 

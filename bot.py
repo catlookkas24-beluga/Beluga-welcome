@@ -9,11 +9,13 @@ import asyncio
 import logging
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 from aiohttp import web
 
 import db
+import style
 
 load_dotenv()
 
@@ -25,7 +27,7 @@ PORT = int(os.getenv("PORT", "10000"))  # Render จะกำหนด PORT ม�
 
 
 async def health_check(request):
-    return web.Response(text="Beluga bot is alive")
+    return web.Response(text="Anyaluga bot is alive 🌸")
 
 
 async def start_web_server():
@@ -68,6 +70,18 @@ INITIAL_COGS = [
 ]
 
 
+async def setup_hook():
+    """รันครั้งเดียวตอนบอทเริ่ม (ต่างจาก on_ready ที่ยิงซ้ำทุกครั้งที่ reconnect) — ซิงก์ slash command ที่นี่"""
+    try:
+        synced = await bot.tree.sync()
+        log.info(f"ซิงก์ slash command แล้ว {len(synced)} คำสั่ง")
+    except Exception as e:
+        log.error(f"ซิงก์ slash command ไม่สำเร็จ: {e}")
+
+
+bot.setup_hook = setup_hook
+
+
 @bot.event
 async def on_ready():
     log.info(f"เข้าสู่ระบบในชื่อ {bot.user} (ID: {bot.user.id})")
@@ -76,14 +90,34 @@ async def on_ready():
         log.info("เชื่อมต่อ MongoDB สำเร็จ (warmed up)")
     except Exception as e:
         log.error(f"เชื่อมต่อ MongoDB ไม่สำเร็จ: {e}")
+
+
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    """ตัวจับ error กลางของทุกคำสั่ง — ตอบผู้ใช้ด้วย embed น่ารัก ๆ แทนปล่อยให้ "แอปไม่ตอบสนอง" """
+    if isinstance(error, app_commands.CheckFailure):
+        # require_permission() ตอบผู้ใช้เองไปแล้ว — เหลือกรณีที่ยังไม่ได้ตอบ (เช่น has_permissions / ใช้ใน DM)
+        if interaction.response.is_done():
+            return
+        if isinstance(error, app_commands.MissingPermissions):
+            embed = style.warn("คำสั่งนี้ต้องมีสิทธิ์มากกว่านี้นิดนึงน้า 🎀 ลองติดต่อแอดมินดูนะ")
+        else:
+            embed = style.warn("คำสั่งนี้ใช้ในเซิร์ฟเวอร์เท่านั้นน้า 🏠")
+    else:
+        log.exception("คำสั่ง /%s เกิดข้อผิดพลาด", interaction.command.qualified_name if interaction.command else "?", exc_info=error)
+        embed = style.error("มีอะไรผิดพลาดนิดหน่อยน้า… ลองใหม่อีกครั้งนะ ถ้ายังไม่หายบอกแอดมินได้เลย 🥺")
     try:
-        synced = await bot.tree.sync()
-        log.info(f"ซิงก์ slash command แล้ว {len(synced)} คำสั่ง")
-    except Exception as e:
-        log.error(f"ซิงก์ slash command ไม่สำเร็จ: {e}")
+        if interaction.response.is_done():
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        else:
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+    except discord.HTTPException:
+        pass
 
 
 async def main():
+    if not TOKEN:
+        raise SystemExit("❌ ไม่พบ DISCORD_TOKEN — ตั้งค่าไว้ใน .env หรือ environment variable ก่อนรันบอทนะ")
     await start_web_server()
     async with bot:
         for cog in INITIAL_COGS:

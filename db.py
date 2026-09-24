@@ -6,10 +6,12 @@ db.py
 🆕 อัปเดต: เพิ่มระบบ "logging" (เบาเวอร์ชันแรก — เก็บแค่ channel_id ที่จะโพสต์ log)
 """
 
+import copy
 import os
 from datetime import datetime, timedelta, timezone
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorGridFSBucket
 from bson import ObjectId
+from pymongo.errors import DuplicateKeyError
 
 MONGO_URI = os.getenv("MONGO_URI")
 MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "beluga_control")
@@ -65,9 +67,9 @@ DEFAULT_CONFIG = {
     "command_permissions": {},
     "welcome": {
         "channel_id": None,
-        "title": "🎉 ยินดีต้อนรับ {user} สู่ {server_name}!",
-        "description": "ตอนนี้เซิร์ฟเวอร์มี {server_membercount} สมาชิกแล้ว!",
-        "color": "#a0d2eb",
+        "title": "🌸 ยินดีต้อนรับ {user} สู่ {server_name} น้า~",
+        "description": "ตอนนี้เซิร์ฟเวอร์มี {server_membercount} สมาชิกแล้วว ✨\nอยู่ด้วยกันแล้วสนุกแน่นอน~ 💖",
+        "color": "#FF9EC4",
         "image_url": None,
         "image_urls": [],
         "font_key": None,
@@ -94,9 +96,9 @@ DEFAULT_CONFIG = {
     },
     "goodbye": {
         "channel_id": None,
-        "title": "👋 ลาก่อน {user_name}",
-        "description": "ขอให้โชคดีนะครับ หวังว่าจะได้เจอกันอีก",
-        "color": "#6b7280",
+        "title": "🌙 ลาก่อนน้า {user_name}",
+        "description": "ขอบคุณที่มาอยู่ด้วยกันนะ แล้วเจอกันใหม่~ 🍃",
+        "color": "#C4B5FD",
         "image_url": None,
         "image_urls": [],
         "font_key": None,
@@ -104,28 +106,28 @@ DEFAULT_CONFIG = {
     "verify": {
         "channel_id": None,
         "role_id": None,
-        "explain_text": "ยืนยันตัวตนเพื่อป้องกันบอทและผู้ใช้ปลอม ช่วยให้เซิร์ฟเวอร์ปลอดภัยขึ้นครับ",
+        "explain_text": "ยืนยันตัวตนเพื่อป้องกันบอทและผู้ใช้ปลอม ช่วยให้บ้านของเราปลอดภัยขึ้นน้า 🎀",
         "banner_asset_id": None,
-        "color": "#2ecc71",
+        "color": "#8FE3B0",
         "confirm_emoji": "✅",
         "explain_emoji": "❓",
     },
     "rules": {
         "channel_id": None,
         "message_id": None,
-        "title": "📜 กฎของเซิร์ฟเวอร์",
-        "rules_text": "1. เคารพกันและกัน\n2. ห้ามสแปม\n3. ห้ามโฆษณาที่ไม่ได้รับอนุญาต",
+        "title": "📖 กฎของบ้านเรา",
+        "rules_text": "🌷 1. เคารพกันและกัน\n🍡 2. ห้ามสแปม\n🎈 3. ห้ามโฆษณาที่ไม่ได้รับอนุญาต",
         "rank_text": "7 วัน = ส่งรูปได้ | 30 วัน = เข้าเสียงได้",
-        "color": "#e67e22",
+        "color": "#FFB38A",
     },
     "ticket": {
         "category_id": None,
         "support_role_ids": [],
         "panel_channel_id": None,
-        "title": "🎫 เปิดตั๋วขอความช่วยเหลือ",
-        "description": "กดปุ่มด้านล่างเพื่อเปิดห้องส่วนตัวคุยกับทีมงาน",
-        "color": "#5865f2",
-        "welcome_text": "สวัสดีครับ {user} ทีมงานจะเข้ามาช่วยเหลือเร็ว ๆ นี้ กรุณาอธิบายปัญหาของคุณ",
+        "title": "🎫 ต้องการให้ช่วยไหมน้า?",
+        "description": "กดปุ่มด้านล่างเพื่อเปิดห้องส่วนตัวคุยกับทีมงานได้เลย 💌",
+        "color": "#A5D8FF",
+        "welcome_text": "สวัสดีจ้า {user} 🌸 ทีมงานจะรีบมาช่วยเร็ว ๆ นี้ เล่าปัญหาให้ฟังได้เลยน้า",
     },
     "antiraid": {
         "join_threshold": 5,
@@ -147,13 +149,22 @@ DEFAULT_CONFIG = {
         # 🆕 เบาเวอร์ชันแรก: มีแค่ห้อง log — ยังไม่มี mod-case/ตัวกรองแยกประเภท event
         "channel_id": None,
     },
+    # 🎧 ค่าของระบบเพลงที่จำข้าม restart (สีธีม/ระดับเสียง/EQ)
+    "music": {
+        "color": None,
+        "volume": 50,
+        "eq_preset": "flat",
+        "eq_bass": 0,
+        "eq_treble": 0,
+    },
 }
 
 
 def _merge_defaults(doc: dict) -> dict:
     """เติม key ที่ขาดไปด้วยค่า default แบบ recursive (กันเอกสารเก่าที่ schema ยังไม่ครบ)"""
     merged = {}
-    for key, default_val in DEFAULT_CONFIG.items():
+    defaults = copy.deepcopy(DEFAULT_CONFIG)  # กัน caller แก้ list/dict แล้วไปทำ DEFAULT_CONFIG เพี้ยน
+    for key, default_val in defaults.items():
         stored_val = doc.get(key)
         if isinstance(default_val, dict) and isinstance(stored_val, dict):
             merged[key] = {**default_val, **stored_val}
@@ -167,8 +178,11 @@ def _merge_defaults(doc: dict) -> dict:
 async def get_guild_config(guild_id: int) -> dict:
     doc = await guilds.find_one({"_id": guild_id})
     if doc is None:
-        fresh = {"_id": guild_id, **DEFAULT_CONFIG}
-        await guilds.insert_one(fresh)
+        fresh = {"_id": guild_id, **copy.deepcopy(DEFAULT_CONFIG)}
+        try:
+            await guilds.insert_one(fresh)
+        except DuplicateKeyError:
+            pass  # มีอีก task สร้างไปก่อนแล้ว (เช่นคนเข้าพร้อมกันตอนเซิร์ฟใหม่) — ใช้ค่า default ต่อได้เลย
         return fresh
     return {"_id": guild_id, **_merge_defaults(doc)}
 
@@ -500,21 +514,22 @@ async def add_song(
     url: str,
     added_by: int,
     thumbnail_url: str | None = None,
+    message_ref: tuple[int, int] | None = None,
 ) -> None:
-    """เพิ่มเพลงเข้าคลัง — ถ้าชื่อซ้ำ (ไม่สนตัวพิมพ์เล็ก/ใหญ่) จะเขียนทับของเดิม"""
-    await songs.update_one(
-        {"_id": _song_id(guild_id, name)},
-        {
-            "$set": {
-                "guild_id": guild_id,
-                "name": name.strip(),
-                "url": url,
-                "thumbnail_url": thumbnail_url,
-                "added_by": added_by,
-            }
-        },
-        upsert=True,
-    )
+    """เพิ่มเพลงเข้าคลัง — ถ้าชื่อซ้ำ (ไม่สนตัวพิมพ์เล็ก/ใหญ่) จะเขียนทับของเดิม
+
+    message_ref = (channel_id, message_id) ของข้อความที่บอทอัปโหลดไฟล์ไว้ — ลิงก์ CDN ของ Discord
+    หมดอายุเป็นระยะ เลยเก็บที่อยู่ข้อความไว้ให้ music.py ไปดึงลิงก์ใหม่ทุกครั้งก่อนเล่น"""
+    doc = {
+        "guild_id": guild_id,
+        "name": name.strip(),
+        "url": url,
+        "thumbnail_url": thumbnail_url,
+        "added_by": added_by,
+        "message_channel_id": message_ref[0] if message_ref else None,
+        "message_id": message_ref[1] if message_ref else None,
+    }
+    await songs.update_one({"_id": _song_id(guild_id, name)}, {"$set": doc}, upsert=True)
 
 
 async def remove_song(guild_id: int, name: str) -> bool:
@@ -522,27 +537,27 @@ async def remove_song(guild_id: int, name: str) -> bool:
     return result.deleted_count > 0
 
 
-async def get_song(guild_id: int, name: str) -> dict | None:
-    doc = await songs.find_one({"_id": _song_id(guild_id, name)})
-    if doc is None:
-        return None
+def _song_view(doc: dict) -> dict:
+    ref = None
+    if doc.get("message_channel_id") and doc.get("message_id"):
+        ref = (doc["message_channel_id"], doc["message_id"])
     return {
         "name": doc["name"],
         "url": doc["url"],
         "thumbnail_url": doc.get("thumbnail_url"),
+        "message_ref": ref,
+        "added_by": doc.get("added_by"),
     }
+
+
+async def get_song(guild_id: int, name: str) -> dict | None:
+    doc = await songs.find_one({"_id": _song_id(guild_id, name)})
+    return _song_view(doc) if doc else None
 
 
 async def list_songs(guild_id: int) -> list[dict]:
     cursor = songs.find({"guild_id": guild_id}).sort("name", 1)
-    return [
-        {
-            "name": doc["name"],
-            "url": doc["url"],
-            "thumbnail_url": doc.get("thumbnail_url"),
-        }
-        async for doc in cursor
-    ]
+    return [_song_view(doc) async for doc in cursor]
 
 
 # ---------------- Bot Meta (ประวัติ/เวอร์ชันของบอทเอง) ----------------
